@@ -1,0 +1,58 @@
+# Local-only client-specific methodology copies (never commit)
+*_Draft_*_FINAL.xlsx
+
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+
+# Downloaded third-party binaries (Install-* scripts populate this)
+tools/*
+!tools/.gitkeep
+
+# Review script output (default: written next to scripts unless -OutputPath is set)
+ADReview-*.txt
+ADReview-*.csv
+ADReview-*.html
+BuildReview-*.txt
+BuildReview-*.csv
+BuildReview-*.html
+AzureCloudReview-*.txt
+AzureCloudReview-*.csv
+AzureCloudReview-*.html
+
+# External tool collections / scan artifacts
+pingcastle-*/
+purple-knight-*/
+prowler-*/
+*BloodHound*.zip
+SharpHound*.zip
+azurehound*.zip
+azurehound.json
+azurehound.refresh
+
+# Azure lab deploy state (includes generated SQL admin password)
+AzureReviewLab-manifest.json
+
+# Local Azure CLI session cache (if copied into repo folder)
+.azure/
+
+# OS / editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Secrets / env files (defensive)
+.env
+.env.*
+*.pem
+*.pfx
+credentials.json
+secrets.json
