@@ -1,6 +1,13 @@
 # Local-only client-specific methodology copies (never commit)
 *_Draft_*_FINAL.xlsx
+!Draft_AD_Methodology_FINAL.xlsx
+!Draft_Methodology_Azure_FINAL.xlsx
+!Draft_Windows-Build-Review-Methodology_FINAL.xlsx
 backups/
+
+# Personal local reference material (not for repo)
+local/
+.cache/
 
 # Local migration / one-off helpers (keep scripts out of repo)
 *.py
