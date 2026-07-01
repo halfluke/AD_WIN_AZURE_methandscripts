@@ -2,6 +2,8 @@
 *_Draft_*_FINAL.xlsx
 backups/
 
+# Local migration / one-off helpers (keep scripts out of repo)
+*.py
 __pycache__/
 *.py[cod]
 *.pyo
