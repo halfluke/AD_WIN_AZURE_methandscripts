@@ -51,9 +51,13 @@ Service-specific sections **SKIP** when that resource type is not deployed.
 
 ### Demo
 
-Tool installer and Azure cloud review run:
+Tool installer check (`Install-AzureReviewTools.ps1`):
 
-![Install Azure review tools and run AzureCloudReviewv1.ps1](AzureTools.gif)
+![Install Azure review tools (az, Prowler, ROADrecon, AzureHound)](AzureTools.gif)
+
+Cloud review run (`AzureCloudReviewv1.ps1`; example uses `-RunProwler`):
+
+![Run AzureCloudReviewv1.ps1 against a subscription](AzureRun.gif)
 
 ---
 

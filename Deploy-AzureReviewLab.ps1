@@ -123,7 +123,8 @@ function Get-ComputeLocationCandidates {
 function Test-AzureComputeQuotaError {
     param([string]$Text)
     if (-not $Text) { return $false }
-    return ($Text -match 'Operation cannot be completed without additional quota|Additional details - Location:|Current Limit \(Total VMs\)|additional quota')
+    # VM subscription quota and App Service regional capacity (different Azure error text)
+    return ($Text -match 'Operation cannot be completed without additional quota|Additional details - Location:|Current Limit \(Total VMs\)|additional quota|No available instances to satisfy this request|attempting to increase capacity')
 }
 
 function Test-AzureUnsupportedRuntimeError {
