@@ -93,6 +93,8 @@ Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy
 | `WinBuildRun.gif` | Build track demo → [WINBUILD_README.md](WINBUILD_README.md) |
 | `AzureTools.gif`, `AzureRun.gif` | Azure track demos → [AZURE_README.md](AZURE_README.md) |
 
+**Methodology workbooks** (`Draft_*_FINAL.xlsx`) share one header row (bold): Type, Scope, Executor, Executed, Comments, Title, Description, Tooling, Commands/Guidance, Mitre Technique, **Policy** (empty in generic files), Written Issues, Notes. Client-specific methodology copies (gitignored) may use a separate policy column when populated.
+
 ---
 
 ## Quick start

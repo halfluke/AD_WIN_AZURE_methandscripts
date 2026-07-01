@@ -1,5 +1,6 @@
 # Local-only client-specific methodology copies (never commit)
 *_Draft_*_FINAL.xlsx
+backups/
 
 __pycache__/
 *.py[cod]

@@ -13,6 +13,8 @@ Pentester-focused **Entra ID + Azure resource** automation aligned to `Draft_Met
 
 **Scope:** Entra ID, Azure resources, RBAC, CIS-aligned misconfigs, identity attack-path hints. Read-only via **Azure CLI** and Graph REST. Does **not** require Python for the core review script.
 
+Methodology workbook: shared **13-column** header row (see [README.md](README.md#repository-layout)); generic **`Policy`** column is intentionally empty.
+
 ---
 
 ## Requirements

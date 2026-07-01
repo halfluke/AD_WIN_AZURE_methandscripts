@@ -116,7 +116,9 @@ Without `-Run*` flags, the script **detects** tools and emits **MANUAL** guidanc
 8. Certificate Settings (ADCS - mostly MANUAL in v1)  
 9. Maintenance  
 
-**v1 limitations:** Many rows stay `REVIEW` or `MANUAL` (ADCS, GPO ACLs, full Entra hybrid). Use PingCastle / Purple Knight and the workbook **Manual Checks** column for full methodology coverage.
+**v1 limitations:** Many rows stay `REVIEW` or `MANUAL` (ADCS, GPO ACLs, full Entra hybrid). Use PingCastle / Purple Knight and the workbook **Commands/Guidance** column for full methodology coverage.
+
+The workbook uses the shared **13-column** methodology header row (same as Azure/WinBuild): Type, Scope, Executor, Executed, Comments, Title, Description, Tooling, Commands/Guidance, Mitre Technique, Policy, Written Issues, Notes.
 
 ---
 

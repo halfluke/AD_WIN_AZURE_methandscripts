@@ -10,6 +10,8 @@ Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Bu
 
 **Scope:** OS services, patching signals, SMB, firewall, Defender, local GPO on **member servers and DCs**. **No** AD object checks, **no** Azure checks, **no** external tools.
 
+Workbook columns match the pack-wide **13-column** schema (see [README.md](README.md#repository-layout)); CIS benchmark versions per OS are preserved in **Notes** (`[CIS Refs]: …`).
+
 ---
 
 ## Requirements
