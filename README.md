@@ -88,7 +88,10 @@ Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy
 | `Draft_Methodology_Azure_FINAL.xlsx` | Azure |
 | `tools/` | Shared binaries (SharpHound, PingCastle, AzureHound) |
 | `README.md` | This overview |
-| `AD_README.md`, `WINBUILD_README.md`, `AZURE_README.md` | Per-track docs |
+| `AD_README.md`, `WINBUILD_README.md`, `AZURE_README.md` | Per-track docs (each embeds a demo `.gif`) |
+| `ADTools.gif`, `ADrun.gif` | AD track demos → [AD_README.md](AD_README.md) |
+| `WinBuildRun.gif` | Build track demo → [WINBUILD_README.md](WINBUILD_README.md) |
+| `AzureTools.gif` | Azure track demo → [AZURE_README.md](AZURE_README.md) |
 
 ---
 

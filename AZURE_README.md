@@ -49,6 +49,12 @@ az login
 
 Service-specific sections **SKIP** when that resource type is not deployed.
 
+### Demo
+
+Tool installer and Azure cloud review run:
+
+![Install Azure review tools and run AzureCloudReviewv1.ps1](AzureTools.gif)
+
 ---
 
 ## Parameters (`AzureCloudReviewv1.ps1`)

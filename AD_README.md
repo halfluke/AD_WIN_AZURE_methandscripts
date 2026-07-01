@@ -32,6 +32,16 @@ cd C:\path\to\AD_WIN_AZURE_methandscripts
 .\ADReviewv1.ps1 -RunSharpHound -RunPingCastle
 ```
 
+### Demo
+
+Tool installer check:
+
+![Install AD review tools (SharpHound, PingCastle)](ADTools.gif)
+
+Review script run (CSV/HTML output):
+
+![Run ADReviewv1.ps1](ADrun.gif)
+
 ---
 
 ## Parameters (`ADReviewv1.ps1`)

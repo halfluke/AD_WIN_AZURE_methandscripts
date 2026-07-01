@@ -41,6 +41,10 @@ cd C:\path\to\AD_WIN_AZURE_methandscripts
 
 Run **on each in-scope server/DC**, elevated where possible.
 
+### Demo
+
+![Run WinBuildReview.ps1 on a server](WinBuildRun.gif)
+
 ---
 
 ## Parameters
