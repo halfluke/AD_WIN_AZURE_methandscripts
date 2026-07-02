@@ -17,7 +17,7 @@ Pentester-focused assessment pack with **three separate tracks**. Each track has
 | Track | Script | Methodology workbook | Version | Scope |
 |-------|--------|----------------------|---------|--------|
 | **Active Directory** | `ADReviewv1.ps1` | `Draft_AD_Methodology_FINAL.xlsx` | 1.0.5 | AD objects, domain/forest policy, trusts, delegation, ADCS posture, hybrid Entra |
-| **Windows build / host** | `WinBuildReview.ps1` | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | 2.0.3 | OS services, patching, SMB, firewall, Defender, local GPO |
+| **Windows build / host** | `WinBuildReview.ps1` | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | 2.0.6 | OS services, patching, SMB, firewall, Defender, local GPO, local privesc |
 | **Azure / Entra cloud** | `AzureCloudReviewv1.ps1` | `Draft_Methodology_Azure_FINAL.xlsx` | 1.0.0 | Entra ID, Azure resources, RBAC, CIS-aligned cloud misconfigs |
 
 | Track | Out of scope (use another track) |
@@ -37,21 +37,27 @@ Pentester-focused assessment pack with **three separate tracks**. Each track has
 | SharpHound | Optional | - | - | `Install-ADReviewTools.ps1` |
 | PingCastle | Optional | - | - | `Install-ADReviewTools.ps1` |
 | Purple Knight | Optional | - | - | Manual (Semperis) |
+| winPEAS | - | Optional | - | `Install-WinBuildReviewTools.ps1` |
 | Prowler | - | - | Optional | `Install-AzureReviewTools.ps1` |
 | ROADrecon / AzureHound | - | - | Optional | `Install-AzureReviewTools.ps1` |
 | BloodHound CE | Manual | - | Manual | Docker + bloodhound-cli |
 | Microsoft Graph | Optional (`-IncludeEntra`) | - | Via `az rest` | AD: `-InstallGraphModule` |
 
-**WinBuild has no third-party tools** — only native PowerShell, registry, and WMI.
+**WinBuild has no third-party tools required** — CIS checks use native PowerShell; optional **winPEAS** via `Install-WinBuildReviewTools.ps1`.
+
+**WinBuild optional tools:** winPEAS + PEASS parsers (`Install-WinBuildReviewTools.ps1 -InstallAll`) — native script checks cover common privesc signals without them.
 
 | Tool | Auto-run flag |
 |------|---------------|
 | SharpHound (AD) | `-RunSharpHound` |
 | PingCastle (AD) | `-RunPingCastle` |
 | Purple Knight (AD) | `-RunPurpleKnight` |
+| winPEAS (WinBuild) | `-RunWinPeas` |
 | Prowler (Azure) | `-RunProwler` |
 
-Without `-Run*`, AD and Azure scripts **detect** tools and emit **MANUAL** guidance. Use `-SkipExternalTools` (AD) or `-SkipIdentityTools` (Azure) to skip those rows.
+Without `-Run*`, AD and Azure scripts **detect** tools and emit **MANUAL** guidance. WinBuild emits **MANUAL** for winPEAS unless `-RunWinPeas`. Use `-SkipExternalTools` (AD/WinBuild) or `-SkipIdentityTools` (Azure) to skip those rows.
+
+**Tool upgrades:** `-Upgrade` on each track installer skips re-download when the release tag already matches GitHub latest — **winPEAS** (`Install-WinBuildReviewTools.ps1 -Upgrade`; first install `-InstallAll`); **SharpHound/PingCastle** (`Install-ADReviewTools.ps1 -InstallAll -Upgrade`); **Azure** pip via `-InstallPythonTools -Upgrade`, **AzureHound** via `-InstallAzureHound -Upgrade` (release tag in `.\tools\azurehound.release`).
 
 Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZURE_README.md — installer & identity tools](AZURE_README.md#identity-tools-manual--methodology-section-35)
 
@@ -80,7 +86,8 @@ Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy
 |------|-------|
 | `ADReviewv1.ps1`, `ADReview.Common.ps1`, `Install-ADReviewTools.ps1` | AD |
 | `Draft_AD_Methodology_FINAL.xlsx` | AD |
-| `WinBuildReview.ps1`, `WinBuildReview.Common.ps1`, `WinBuildReview.CisProfiles.ps1` | Build |
+| `WinBuildReview.ps1`, `WinBuildReview.Common.ps1`, `WinBuildReview.CisProfiles.ps1`, `WinBuildReview.PrivEscDeep.ps1` | Build |
+| `Install-WinBuildReviewTools.ps1` | Build (optional winPEAS) |
 | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | Build |
 | `AzureCloudReviewv1.ps1`, `AzureCloudReview.Common.ps1`, `Install-AzureReviewTools.ps1` | Azure |
 | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` | Azure |
@@ -90,7 +97,7 @@ Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy
 | `README.md` | This overview |
 | `AD_README.md`, `WINBUILD_README.md`, `AZURE_README.md` | Per-track docs (each embeds a demo `.gif`) |
 | `ADTools.gif`, `ADrun.gif` | AD track demos → [AD_README.md](AD_README.md) |
-| `WinBuildRun.gif` | Build track demo → [WINBUILD_README.md](WINBUILD_README.md) |
+| `WinBuildInstall.gif`, `WinBuildRun.gif`, `WinBuildRun2.gif` | Build track demos → [WINBUILD_README.md](WINBUILD_README.md) |
 | `AzureTools.gif`, `AzureRun.gif` | Azure track demos → [AZURE_README.md](AZURE_README.md) |
 
 **Methodology workbooks** (`Draft_*_FINAL.xlsx`) share one header row (bold): Type, Scope, Executor, Executed, Comments, Title, Description, Tooling, Commands/Guidance, Mitre Technique, **Policy** (empty in generic files), Written Issues, Notes. Client-specific methodology copies (gitignored) may use a separate policy column when populated.
@@ -102,7 +109,7 @@ The **`.xlsx` is the full engagement checklist** (every control + MITRE column J
 | Track | Workbook rows (approx.) | Script titles emitted (approx.) | Notes |
 |-------|-------------------------|----------------------------------|-------|
 | AD | ~129 (~110 in-scope in workbook) | ~50 | Many ADCS / GPO / Entra rows stay MANUAL; match CSV **Title** → column F |
-| WinBuild | ~61 | ~55 | Closest alignment; finish CIS PDF gaps from workbook |
+| WinBuild | ~67 | ~61 | Closest alignment; finish CIS PDF gaps from workbook |
 | Azure | ~91 | ~57 | Workbook = granular CIS rows; script often **bundles by section** (e.g. §34 VMs); optional `-RunProwler` for CIS L1 depth |
 
 **Triage:** map each CSV row to the workbook by **Title (column F)**, then MITRE — not by row number. Title strings often differ from the workbook; workbook-only rows are expected.
@@ -217,8 +224,9 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure a
 | AD methodology | **FINAL** (`Draft_AD_Methodology_FINAL.xlsx`) | ~129 workbook rows (~110 in-scope); ~50 script checks |
 | `ADReviewv1.ps1` | **1.0.5** | SharpHound, PingCastle, Purple Knight, `-PingCastleServer` |
 | `Install-ADReviewTools.ps1` | **1.0.0** | SharpHound + PingCastle (Windows) |
-| WinBuild methodology | **FINAL** (`Draft_Windows-Build-Review-Methodology_FINAL.xlsx`) | ~61 workbook rows; ~55 script checks |
-| `WinBuildReview.ps1` | **2.0.3** | `-CisBaselineOnly`, `-StrictCis` |
+| WinBuild methodology | **FINAL** (`Draft_Windows-Build-Review-Methodology_FINAL.xlsx`) | ~67 workbook rows; ~61 script checks |
+| `WinBuildReview.ps1` | **2.0.6** | Native deep privesc checks; optional `-RunWinPeas` → timestamped winpeas `.out` + JSON/HTML/PDF when parsers installed |
+| `Install-WinBuildReviewTools.ps1` | **1.1.0** | winPEAS + PEASS parsers (Windows) |
 | Azure methodology | **FINAL** (`Draft_Methodology_Azure_FINAL.xlsx`) | ~91 workbook rows, 35 sections; ~57 script checks |
 | `AzureCloudReviewv1.ps1` | **1.0.0** | az CLI + optional Prowler |
 | `Install-AzureReviewTools.ps1` | **1.0.0** | az, pip tools, AzureHound (Windows; Linux/macOS via `pwsh`) |
@@ -235,6 +243,8 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure a
 .\ADReviewv1.ps1 -RunSharpHound -RunPingCastle
 
 .\WinBuildReview.ps1 -CisBaselineOnly -StrictCis
+.\Install-WinBuildReviewTools.ps1 -InstallAll -AddToolsToUserPath
+.\WinBuildReview.ps1 -RunWinPeas
 
 .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
 # Linux: pwsh ./Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath

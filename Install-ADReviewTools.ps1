@@ -25,6 +25,11 @@
 .PARAMETER InstallAll
     Equivalent to -InstallSharpHound -InstallPingCastle (not Microsoft.Graph; use -InstallGraphModule for hybrid Entra)
 
+.PARAMETER Upgrade
+    Download SharpHound and/or PingCastle when missing, tag is unknown, or a newer GitHub release is available.
+    Skips re-download when already at latest. Use with -InstallSharpHound / -InstallPingCastle (or -InstallAll).
+    Without -Upgrade, existing binaries are kept when present.
+
 .PARAMETER AddToolsToUserPath
     Append .\tools to the user PATH permanently.
 
@@ -37,6 +42,9 @@
 .EXAMPLE
     .\Install-ADReviewTools.ps1 -InstallAll -AddToolsToUserPath
 
+.EXAMPLE
+    .\Install-ADReviewTools.ps1 -InstallAll -Upgrade
+
 .NOTES
     BloodHound CE GUI: Docker Desktop + bloodhound-cli — https://bloodhound.specterops.io/get-started/quickstart/community-edition-quickstart
     Shared tools folder with Install-AzureReviewTools.ps1 (.\tools).
@@ -48,6 +56,7 @@ param(
     [switch]$InstallPingCastle,
     [switch]$InstallGraphModule,
     [switch]$InstallAll,
+    [switch]$Upgrade,
     [switch]$AddToolsToUserPath,
     [switch]$CheckOnly
 )
@@ -57,13 +66,15 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $toolsDir = Join-Path $scriptDir "tools"
 $sharpHoundPath = Join-Path $toolsDir "SharpHound.exe"
 $pingCastlePath = Join-Path $toolsDir "PingCastle.exe"
+$sharpHoundMetaPath = Join-Path $toolsDir "sharphound.release"
+$pingCastleMetaPath = Join-Path $toolsDir "pingcastle.release"
 
 if ($InstallAll) {
     $InstallSharpHound = $true
     $InstallPingCastle = $true
 }
 
-$anyInstallSwitch = $InstallSharpHound -or $InstallPingCastle -or $InstallGraphModule -or $AddToolsToUserPath
+$anyInstallSwitch = $InstallSharpHound -or $InstallPingCastle -or $InstallGraphModule -or $AddToolsToUserPath -or $Upgrade
 if ($CheckOnly -and $anyInstallSwitch) {
     Write-Error "-CheckOnly cannot be combined with install switches."
 }
@@ -149,18 +160,76 @@ function Add-DirectoryToUserPath {
     Write-Step "Added to user PATH: $Directory"
 }
 
+function Get-InstalledReleaseTag {
+    param(
+        [string]$MetaPath,
+        [string]$BinaryPath
+    )
+
+    if ($MetaPath -and (Test-Path $MetaPath)) {
+        $tag = (Get-Content -Path $MetaPath -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($tag) { return $tag }
+    }
+
+    if ($BinaryPath -and (Test-Path $BinaryPath)) {
+        try {
+            $vi = (Get-Item -LiteralPath $BinaryPath).VersionInfo
+            if ($vi.ProductVersion) { return "file:$($vi.ProductVersion)" }
+        }
+        catch { }
+    }
+
+    return $null
+}
+
+function Save-ReleaseTag {
+    param(
+        [Parameter(Mandatory)][string]$MetaPath,
+        [Parameter(Mandatory)][string]$Tag
+    )
+    New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+    Set-Content -Path $MetaPath -Value $Tag -Encoding utf8 -NoNewline
+}
+
+function Get-LatestGitHubRelease {
+    param([Parameter(Mandatory)][string]$Repo)
+    Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{
+        "User-Agent" = "Install-ADReviewTools.ps1"
+    }
+}
+
 function Install-GitHubReleaseBinary {
     param(
         [Parameter(Mandatory)][string]$Repo,
         [Parameter(Mandatory)][string]$AssetPattern,
         [Parameter(Mandatory)][string]$BinaryName,
-        [Parameter(Mandatory)][string]$DestinationPath
+        [Parameter(Mandatory)][string]$DestinationPath,
+        [Parameter(Mandatory)][string]$MetaPath,
+        [switch]$ForceUpgrade
     )
 
-    Write-Step "Downloading $BinaryName from $Repo latest release"
+    $existing = Test-ToolCommand -Name $BinaryName -ExtraPaths @($toolsDir)
+    $release = Get-LatestGitHubRelease -Repo $Repo
+    $installedTag = Get-InstalledReleaseTag -MetaPath $MetaPath -BinaryPath $DestinationPath
 
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{
-        "User-Agent" = "Install-ADReviewTools.ps1"
+    if ($existing.Found) {
+        if ($installedTag -eq $release.tag_name) {
+            Write-Step "$BinaryName already at latest release ($($release.tag_name))"
+            return
+        }
+        if (-not $ForceUpgrade) {
+            if ($installedTag) {
+                Write-WarnStep "$BinaryName present ($installedTag) but latest is $($release.tag_name). Re-run with -Upgrade to update."
+            }
+            else {
+                Write-WarnStep "$BinaryName present but release tag unknown. Re-run with -Upgrade to refresh from $($release.tag_name)."
+            }
+            return
+        }
+        Write-Step "Upgrading $BinaryName to $($release.tag_name)"
+    }
+    else {
+        Write-Step "Downloading $BinaryName from $Repo release $($release.tag_name)"
     }
 
     $asset = $release.assets | Where-Object { $_.name -match $AssetPattern } | Select-Object -First 1
@@ -184,32 +253,31 @@ function Install-GitHubReleaseBinary {
     Copy-Item -Path $binary.FullName -Destination $DestinationPath -Force
     Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    Save-ReleaseTag -MetaPath $MetaPath -Tag $release.tag_name
 
-    Write-Step "$BinaryName saved to $DestinationPath"
+    Write-Step "$BinaryName saved to $DestinationPath (release $($release.tag_name))"
 }
 
 function Install-SharpHoundBinary {
-    if ((Test-ToolCommand "SharpHound.exe" -ExtraPaths @($toolsDir)).Found) {
-        Write-Step "SharpHound already available"
-        return
-    }
+    param([switch]$ForceUpgrade)
 
     Install-GitHubReleaseBinary -Repo "SpecterOps/SharpHound" `
         -AssetPattern '(?i)SharpHound.*\.zip$' `
         -BinaryName "SharpHound.exe" `
-        -DestinationPath $sharpHoundPath
+        -DestinationPath $sharpHoundPath `
+        -MetaPath $sharpHoundMetaPath `
+        -ForceUpgrade:$ForceUpgrade
 }
 
 function Install-PingCastleBinary {
-    if ((Test-ToolCommand "PingCastle.exe" -ExtraPaths @($toolsDir)).Found) {
-        Write-Step "PingCastle already available"
-        return
-    }
+    param([switch]$ForceUpgrade)
 
     Install-GitHubReleaseBinary -Repo "vletoux/PingCastle" `
         -AssetPattern '(?i)^PingCastle_.*\.zip$' `
         -BinaryName "PingCastle.exe" `
-        -DestinationPath $pingCastlePath
+        -DestinationPath $pingCastlePath `
+        -MetaPath $pingCastleMetaPath `
+        -ForceUpgrade:$ForceUpgrade
 }
 
 function Test-GraphModuleReady {
@@ -236,26 +304,51 @@ Write-Host "`nAD Review Tools - install / verify" -ForegroundColor Green
 Write-Host "Tools directory: $toolsDir`n"
 
 if (-not $CheckOnly) {
-    if ($InstallSharpHound) { Install-SharpHoundBinary }
-    if ($InstallPingCastle) { Install-PingCastleBinary }
+    if ($InstallSharpHound) { Install-SharpHoundBinary -ForceUpgrade:$Upgrade }
+    if ($InstallPingCastle) { Install-PingCastleBinary -ForceUpgrade:$Upgrade }
     if ($InstallGraphModule) { Install-MicrosoftGraphModule }
     if ($AddToolsToUserPath) { Add-DirectoryToUserPath -Directory $toolsDir }
 }
 
+$latestSharpHound = $null
+$latestPingCastle = $null
+try { $latestSharpHound = Get-LatestGitHubRelease -Repo "SpecterOps/SharpHound" } catch { }
+try { $latestPingCastle = Get-LatestGitHubRelease -Repo "vletoux/PingCastle" } catch { }
+
 $extraPaths = @($toolsDir)
 $toolChecks = @(
-    @{ Label = "SharpHound.exe"; Name = "SharpHound.exe" }
-    @{ Label = "PingCastle.exe"; Name = "PingCastle.exe" }
+    @{ Label = "SharpHound.exe"; Name = "SharpHound.exe"; MetaPath = $sharpHoundMetaPath; BinaryPath = $sharpHoundPath; Latest = $latestSharpHound }
+    @{ Label = "PingCastle.exe"; Name = "PingCastle.exe"; MetaPath = $pingCastleMetaPath; BinaryPath = $pingCastlePath; Latest = $latestPingCastle }
 )
 
-Write-Host ("{0,-18} {1,-8} {2}" -f "Tool", "Status", "Location") -ForegroundColor DarkGray
+Write-Host ("{0,-18} {1,-8} {2}" -f "Tool", "Status", "Location / version") -ForegroundColor DarkGray
 Write-Host ("-" * 80) -ForegroundColor DarkGray
 
 foreach ($tool in $toolChecks) {
     $info = Test-ToolCommand -Name $tool.Name -ExtraPaths $extraPaths
-    $status = if ($info.Found) { "OK" } else { "MISSING" }
-    $color = if ($info.Found) { "Green" } else { "Red" }
-    Write-Host ("{0,-18} {1,-8} {2}" -f $tool.Label, $status, $info.Detail) -ForegroundColor $color
+    $installedTag = Get-InstalledReleaseTag -MetaPath $tool.MetaPath -BinaryPath $tool.BinaryPath
+    $latestTag = if ($tool.Latest) { $tool.Latest.tag_name } else { $null }
+    $needsUpgrade = $false
+
+    if (-not $info.Found) {
+        $status = "MISSING"
+        $color = "Red"
+        $detail = $info.Detail
+    }
+    elseif ($latestTag -and $installedTag -ne $latestTag) {
+        $status = "UPDATE"
+        $color = "Yellow"
+        $needsUpgrade = $true
+        if ($installedTag) { $detail = "installed $installedTag -> latest $latestTag" }
+        else { $detail = "installed (unknown tag) -> latest $latestTag" }
+    }
+    else {
+        $status = "OK"
+        $color = "Green"
+        $detail = if ($installedTag) { "release $installedTag" } else { $info.Detail }
+    }
+
+    Write-Host ("{0,-18} {1,-8} {2}" -f $tool.Label, $status, $detail) -ForegroundColor $color
     if ($info.Found -and -not $info.InPathHint) {
         Write-WarnStep "$($tool.Label) found outside PATH: $($info.Source)"
     }
@@ -276,6 +369,16 @@ if (-not (Test-ToolCommand "SharpHound.exe" -ExtraPaths $extraPaths).Found -or
     -not (Test-ToolCommand "PingCastle.exe" -ExtraPaths $extraPaths).Found) {
     Write-Host "Suggested install:" -ForegroundColor Yellow
     Write-Host "  .\Install-ADReviewTools.ps1 -InstallAll -AddToolsToUserPath`n" -ForegroundColor White
+}
+else {
+    $sh = Get-InstalledReleaseTag -MetaPath $sharpHoundMetaPath -BinaryPath $sharpHoundPath
+    $pc = Get-InstalledReleaseTag -MetaPath $pingCastleMetaPath -BinaryPath $pingCastlePath
+    $shLatest = if ($latestSharpHound) { $latestSharpHound.tag_name } else { $null }
+    $pcLatest = if ($latestPingCastle) { $latestPingCastle.tag_name } else { $null }
+    if (($shLatest -and $sh -ne $shLatest) -or ($pcLatest -and $pc -ne $pcLatest)) {
+        Write-Host "Update available:" -ForegroundColor Yellow
+        Write-Host "  .\Install-ADReviewTools.ps1 -InstallAll -Upgrade`n" -ForegroundColor White
+    }
 }
 
 if (-not $pkCmdlet) {

@@ -113,6 +113,7 @@ pwsh ./Install-AzureReviewTools.ps1               # check only (Linux/macOS)
 | `-InstallAzCli` | **Windows:** Azure CLI via winget · **Linux:** `apt` package or Microsoft `InstallAzureCLIDeb` script (may need `sudo`) |
 | `-InstallPythonTools` | `pip install prowler roadrecon` (skips if already installed unless `-Upgrade`) |
 | `-InstallAzureHound` | Download AzureHound into `./tools` (Windows `.exe` or Linux/macOS binary matched to CPU arch) |
+| `-Upgrade` | `pip --upgrade` with `-InstallPythonTools`; AzureHound update when missing, tag unknown, or newer (skips if at latest) |
 | `-InstallAll` | All three |
 | `-AddToolsToUserPath` | Append `./tools` + Python scripts dir (`Scripts` on Windows, often `~/.local/bin` on Linux) to user PATH |
 

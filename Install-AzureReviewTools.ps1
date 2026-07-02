@@ -26,7 +26,8 @@
     Equivalent to -InstallAzCli -InstallPythonTools -InstallAzureHound.
 
 .PARAMETER Upgrade
-    Pass --upgrade to pip when installing Python packages.
+    Pass --upgrade to pip when installing Python packages. With -InstallAzureHound (or -InstallAll),
+    download AzureHound when missing, tag is unknown, or a newer release is available; skips if already at latest.
 
 .PARAMETER AddToolsToUserPath
     Append ./tools and the current Python scripts directory to the user PATH permanently.
@@ -42,6 +43,9 @@
 
 .EXAMPLE
     .\Install-AzureReviewTools.ps1 -InstallPythonTools -Upgrade
+
+.EXAMPLE
+    .\Install-AzureReviewTools.ps1 -InstallAzureHound -Upgrade
 
 .NOTES
     Requires an internet connection for downloads. Azure CLI install on Linux may require sudo.
@@ -92,6 +96,7 @@ function Get-InstallPlatform {
 $platform = Get-InstallPlatform
 $azureHoundFileName = if ($platform.Family -eq "windows") { "azurehound.exe" } else { "azurehound" }
 $azureHoundPath = Join-Path $toolsDir $azureHoundFileName
+$azureHoundMetaPath = Join-Path $toolsDir "azurehound.release"
 
 if ($InstallAll) {
     $InstallAzCli = $true
@@ -99,7 +104,7 @@ if ($InstallAll) {
     $InstallAzureHound = $true
 }
 
-$anyInstallSwitch = $InstallAzCli -or $InstallPythonTools -or $InstallAzureHound -or $AddToolsToUserPath
+$anyInstallSwitch = $InstallAzCli -or $InstallPythonTools -or $InstallAzureHound -or $AddToolsToUserPath -or $Upgrade
 if ($CheckOnly -and $anyInstallSwitch) {
     Write-Error "-CheckOnly cannot be combined with install switches."
 }
@@ -336,18 +341,63 @@ function Get-AzureHoundReleaseAsset {
     return $asset
 }
 
+function Get-LatestAzureHoundRelease {
+    Invoke-RestMethod -Uri "https://api.github.com/repos/SpecterOps/AzureHound/releases/latest" -Headers @{
+        "User-Agent" = "Install-AzureReviewTools.ps1"
+    }
+}
+
+function Get-InstalledAzureHoundReleaseTag {
+    if (Test-Path $azureHoundMetaPath) {
+        $tag = (Get-Content -Path $azureHoundMetaPath -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($tag) { return $tag }
+    }
+
+    if (Test-Path $azureHoundPath) {
+        try {
+            $out = & $azureHoundPath version 2>&1 | Out-String
+            if ($out.Trim()) { return "binary:$($out.Trim().Split([Environment]::NewLine)[0])" }
+        }
+        catch { }
+    }
+
+    return $null
+}
+
+function Save-AzureHoundReleaseTag {
+    param([Parameter(Mandatory)][string]$Tag)
+    New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+    Set-Content -Path $azureHoundMetaPath -Value $Tag -Encoding utf8 -NoNewline
+}
+
 function Install-AzureHoundBinary {
-    if ((Test-ToolCommand "azurehound" -ExtraPaths @($toolsDir)).Found) {
-        Write-Step "AzureHound already available"
-        return
+    param([switch]$ForceUpgrade)
+
+    $existing = Test-ToolCommand "azurehound" -ExtraPaths @($toolsDir)
+    $release = Get-LatestAzureHoundRelease
+    $installedTag = Get-InstalledAzureHoundReleaseTag
+
+    if ($existing.Found) {
+        if ($installedTag -eq $release.tag_name) {
+            Write-Step "AzureHound already at latest release ($($release.tag_name))"
+            return
+        }
+        if (-not $ForceUpgrade) {
+            if ($installedTag) {
+                Write-WarnStep "AzureHound present ($installedTag) but latest is $($release.tag_name). Re-run with -InstallAzureHound -Upgrade to update."
+            }
+            else {
+                Write-WarnStep "AzureHound present but release tag unknown. Re-run with -InstallAzureHound -Upgrade to refresh from $($release.tag_name)."
+            }
+            return
+        }
+        Write-Step "Upgrading AzureHound to $($release.tag_name)"
+    }
+    else {
+        Write-Step "Downloading AzureHound ($($platform.Family)/$($platform.Arch)) from release $($release.tag_name)"
     }
 
     New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
-    Write-Step "Downloading AzureHound ($($platform.Family)/$($platform.Arch)) from SpecterOps/AzureHound latest release"
-
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/SpecterOps/AzureHound/releases/latest" -Headers @{
-        "User-Agent" = "Install-AzureReviewTools.ps1"
-    }
 
     $asset = Get-AzureHoundReleaseAsset -Release $release -PlatformInfo $platform
     if (-not $asset) {
@@ -375,8 +425,9 @@ function Install-AzureHoundBinary {
 
     Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    Save-AzureHoundReleaseTag -Tag $release.tag_name
 
-    Write-Step "AzureHound saved to $azureHoundPath"
+    Write-Step "AzureHound saved to $azureHoundPath (release $($release.tag_name))"
 }
 
 function Add-DirectoryToUserPath {
@@ -430,10 +481,23 @@ function Get-ToolVersion {
 }
 
 function Format-Status {
-    param([bool]$Found)
-    if ($Found) { return "OK" }
-    return "MISSING"
+    param(
+        [bool]$Found,
+        [switch]$NeedsUpgrade
+    )
+    if (-not $Found) { return "MISSING" }
+    if ($NeedsUpgrade) { return "UPDATE" }
+    return "OK"
 }
+
+$latestAzureHoundRelease = $null
+try {
+    $latestAzureHoundRelease = Get-LatestAzureHoundRelease
+}
+catch {
+    Write-WarnStep "Could not query latest AzureHound release: $($_.Exception.Message)"
+}
+$installedAzureHoundTag = Get-InstalledAzureHoundReleaseTag
 
 Write-Host "`nAzure Review Tools - install / verify ($($platform.Family)/$($platform.Arch))" -ForegroundColor Green
 Write-Host "Script directory: $scriptDir`n"
@@ -458,7 +522,7 @@ if (-not $CheckOnly) {
     }
 
     if ($InstallAzureHound) {
-        Install-AzureHoundBinary
+        Install-AzureHoundBinary -ForceUpgrade:$Upgrade
     }
 
     if ($AddToolsToUserPath) {
@@ -499,9 +563,30 @@ Write-Host ("{0,-12} {1,-8} {2}" -f "Tool", "Status", "Location / version") -For
 Write-Host ("-" * 80) -ForegroundColor DarkGray
 
 foreach ($item in $results) {
-    $status = Format-Status $item.Found
-    $color = if ($item.Found) { "Green" } else { "Red" }
+    $needsUpgrade = $false
     $location = if ($item.Version) { $item.Version } else { $item.Detail }
+
+    if ($item.Name -eq "azurehound" -and $item.Found -and $latestAzureHoundRelease) {
+        $latestTag = $latestAzureHoundRelease.tag_name
+        if ($installedAzureHoundTag -and $installedAzureHoundTag -ne $latestTag) {
+            $needsUpgrade = $true
+            $location = "installed $installedAzureHoundTag -> latest $latestTag"
+        }
+        elseif (-not $installedAzureHoundTag) {
+            $needsUpgrade = $true
+            $location = "installed (unknown tag) -> latest $latestTag"
+        }
+        elseif ($installedAzureHoundTag) {
+            $location = "release $installedAzureHoundTag"
+        }
+    }
+
+    $status = Format-Status -Found $item.Found -NeedsUpgrade:$needsUpgrade
+    $color = switch ($status) {
+        "OK" { "Green" }
+        "UPDATE" { "Yellow" }
+        default { "Red" }
+    }
     Write-Host ("{0,-12} {1,-8} {2}" -f $item.Name, $status, $location) -ForegroundColor $color
     if ($item.Found -and -not $item.InPathHint) {
         Write-WarnStep "$($item.Name) found outside PATH: $($item.Source)"
@@ -509,13 +594,22 @@ foreach ($item in $results) {
 }
 
 $missing = @($results | Where-Object { -not $_.Found })
-if ($missing.Count -eq 0) {
+$azureHoundNeedsUpgrade = ($results | Where-Object { $_.Name -eq "azurehound" -and $_.Found }).Count -gt 0 -and
+    $latestAzureHoundRelease -and $installedAzureHoundTag -ne $latestAzureHoundRelease.tag_name
+
+if ($missing.Count -eq 0 -and -not $azureHoundNeedsUpgrade) {
     Write-Host "`nAll tools are available." -ForegroundColor Green
 }
 else {
-    Write-Host "`nMissing tools: $($missing.Name -join ', ')" -ForegroundColor Yellow
-    Write-Host "Suggested install command:" -ForegroundColor Yellow
-    Write-Host "  .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath`n" -ForegroundColor White
+    if ($missing.Count -gt 0) {
+        Write-Host "`nMissing tools: $($missing.Name -join ', ')" -ForegroundColor Yellow
+        Write-Host "Suggested install command:" -ForegroundColor Yellow
+        Write-Host "  .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath`n" -ForegroundColor White
+    }
+    if ($azureHoundNeedsUpgrade) {
+        Write-Host "AzureHound update available:" -ForegroundColor Yellow
+        Write-Host "  .\Install-AzureReviewTools.ps1 -InstallAzureHound -Upgrade`n" -ForegroundColor White
+    }
 
     if ($missing.Name -contains "az") {
         if ($platform.Family -eq "windows") {

@@ -140,6 +140,7 @@ The workbook uses the shared **13-column** methodology header row (same as Azure
 | `-InstallPingCastle` | Download PingCastle.exe to `.\tools` |
 | `-InstallGraphModule` | `Install-Module Microsoft.Graph` (CurrentUser) |
 | `-InstallAll` | SharpHound + PingCastle (add `-InstallGraphModule` for hybrid Entra) |
+| `-Upgrade` | Download SharpHound/PingCastle when missing, tag unknown, or newer release available; skips if already at latest |
 | `-AddToolsToUserPath` | Append `.\tools` to user PATH |
 
 Purple Knight: install manually from [Semperis](https://www.semperis.com/purple-knight/).

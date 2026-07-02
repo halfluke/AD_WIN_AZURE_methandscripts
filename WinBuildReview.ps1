@@ -22,6 +22,17 @@
     Promote ambiguous CIS baseline gaps from REVIEW to FAIL (e.g. LLMNR/LAPS/RunAsPPL not configured).
     Does not skip pentest/hygiene checks — combine with -CisBaselineOnly for a shorter lab run.
 
+.PARAMETER RunWinPeas
+    Run winPEAS when available in PATH or .\tools; writes timestamped files under -OutputPath (see -WinPeasProfile).
+    When PEASS parsers are installed (Install-WinBuildReviewTools.ps1 -InstallAll), also writes matching winpeas-<host>-<timestamp>.json, .html, and .pdf.
+
+.PARAMETER WinPeasProfile
+    **Focused** (default): privesc-oriented modules only; skips eventsinfo and file crawls.
+    **Full**: adds network, browser, cloud checks; still skips eventsinfo and filesinfo.
+
+.PARAMETER SkipExternalTools
+    Skip the winPEAS automation row (native deep privesc checks still run on full review).
+
 .EXAMPLE
     .\WinBuildReview.ps1
 
@@ -29,10 +40,16 @@
     .\WinBuildReview.ps1 -CisBaselineOnly
 
 .EXAMPLE
+    .\WinBuildReview.ps1 -RunWinPeas
+
+.EXAMPLE
+    .\WinBuildReview.ps1 -RunWinPeas -WinPeasProfile Full
+
+.EXAMPLE
     .\WinBuildReview.ps1 -OutputPath "C:\Reviews\Build" -OsProfile 2012R2
 
 .NOTES
-    Version     : 2.0.3
+    Version     : 2.0.6
     Methodology : Draft_Windows-Build-Review-Methodology_FINAL.xlsx
     CIS profiles: WinBuildReview.CisProfiles.ps1
     Requires    : Administrator recommended for full coverage
@@ -44,13 +61,17 @@ param(
     [ValidateSet('', '2012', '2012R2', '2016', '2019', '2022', '2025')]
     [string]$OsProfile = "",
     [switch]$CisBaselineOnly,
-    [switch]$StrictCis
+    [switch]$StrictCis,
+    [switch]$RunWinPeas,
+    [ValidateSet('Focused', 'Full')]
+    [string]$WinPeasProfile = 'Focused',
+    [switch]$SkipExternalTools
 )
 
 $ErrorActionPreference = "Stop"
 $script:ErrorActionPreference = "Continue"
 
-$scriptVersion = "2.0.3"
+$scriptVersion = "2.0.6"
 $startTime       = Get-Date
 $timestamp       = $startTime.ToString("yyyyMMdd-HHmmss")
 $scriptPath      = $MyInvocation.MyCommand.Path
@@ -71,6 +92,9 @@ $script:TxtLog  = $txtLog
 
 . (Join-Path $scriptDir "WinBuildReview.Common.ps1")
 . (Join-Path $scriptDir "WinBuildReview.CisProfiles.ps1")
+. (Join-Path $scriptDir "WinBuildReview.PrivEscDeep.ps1")
+
+Initialize-WinBuildReviewToolPaths -ScriptDirectory $scriptDir
 
 # Param $OsProfile and $script:OsProfile share script scope; Initialize sets the latter on auto-detect.
 $osProfileOverrideRequested = [bool]$OsProfile
@@ -438,6 +462,54 @@ Invoke-Check -Section $secPriv -CheckId "privesc-hotfixes" -Title "PrivEsc - Hot
         -Status "REVIEW" -Summary "Correlate recent KBs with in-scope CVEs." -Evidence $hf
 }
 
+Invoke-Check -Section $secPriv -CheckId "always-install-elevated" -Title "PrivEsc - AlwaysInstallElevated" -Severity "Critical" -Test {
+    $msi = Test-AlwaysInstallElevatedEnabled
+    Add-ReviewResult -Section $secPriv -CheckId "always-install-elevated" -Title "PrivEsc - AlwaysInstallElevated" `
+        -Status $(if ($msi.Enabled) { "FAIL" } else { "PASS" }) `
+        -Summary "AlwaysInstallElevated HKCU=$($msi.HKCU) HKLM=$($msi.HKLM)" -Evidence $msi `
+        -Remediation "Remove AlwaysInstallElevated=1 from HKCU/HKLM ...\Policies\Microsoft\Windows\Installer."
+}
+
+Invoke-Check -Section $secPriv -CheckId "token-impersonation" -Title "PrivEsc - Token Impersonation Privileges" -Severity "High" -Test {
+    $enabled = @(Get-EnabledWhoamiPrivileges)
+    $critical = @('SeImpersonatePrivilege', 'SeAssignPrimaryTokenPrivilege')
+    $risky = @('SeDebugPrivilege', 'SeBackupPrivilege', 'SeRestorePrivilege', 'SeTakeOwnershipPrivilege', 'SeLoadDriverPrivilege')
+    $critHit = @($enabled | Where-Object { $_ -in $critical })
+    $riskHit = @($enabled | Where-Object { $_ -in $risky })
+    $status = if ($critHit.Count -gt 0) { "FAIL" } elseif ($riskHit.Count -gt 0) { "REVIEW" } else { "PASS" }
+    Add-ReviewResult -Section $secPriv -CheckId "token-impersonation" -Title "PrivEsc - Token Impersonation Privileges" `
+        -Status $status `
+        -Summary "Enabled token privs for current context: critical=$($critHit -join ', '); other-risk=$($riskHit -join ', ')" `
+        -Evidence $enabled `
+        -Remediation "Review service accounts and group memberships granting SeImpersonate / SeAssignPrimaryToken / SeDebug."
+}
+
+Invoke-Check -Section $secPriv -CheckId "service-binary-acl" -Title "PrivEsc - Writable Service Binaries" -Severity "High" -Test {
+    $hits = @(Get-WeakServiceBinaryHits -MaxHits 25)
+    $count = $hits.Count
+    Add-ReviewResult -Section $secPriv -CheckId "service-binary-acl" -Title "PrivEsc - Writable Service Binaries" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "FAIL" }) `
+        -Summary "$count running service binary path(s) writable by low-priv principals (sampled)." -Evidence $hits
+}
+
+Invoke-Check -Section $secPriv -CheckId "service-dacl" -Title "PrivEsc - Service DACL Permissions" -Severity "High" -Test {
+    $hits = @(Get-WeakServiceDaclHits -MaxHits 20)
+    $count = $hits.Count
+    Add-ReviewResult -Section $secPriv -CheckId "service-dacl" -Title "PrivEsc - Service DACL Permissions" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+        -Summary "$count privileged service(s) with low-priv modify/start rights in sc sdshow (sampled)." -Evidence $hits `
+        -Remediation "Review sc.exe sdshow output; restrict service DACLs and change service account if needed."
+}
+
+Invoke-Check -Section $secPriv -CheckId "path-dll-hijack" -Title "PrivEsc - Writable PATH Entries (DLL Hijack)" -Severity "High" -Test {
+    $hits = @(Get-WritablePathEntries -MaxHits 20)
+    $count = $hits.Count
+    Add-ReviewResult -Section $secPriv -CheckId "path-dll-hijack" -Title "PrivEsc - Writable PATH Entries (DLL Hijack)" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "FAIL" }) `
+        -Summary "$count PATH director(ies) writable by low-priv principals." -Evidence $hits `
+        -Remediation "Remove world-writable directories from Machine/User PATH; prefer paths ahead of system directories."
+}
+
 Invoke-Check -Section $secPers -CheckId "autoruns" -Title "Persistence - Registry Autoruns" -Severity "Medium" -Test {
     $hkcu = reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /s 2>&1 | Out-String
     $hklm = reg query HKLM\Software\Microsoft\Windows\CurrentVersion\Run /s 2>&1 | Out-String
@@ -706,6 +778,80 @@ Invoke-Check -Section $secSys -CheckId "security-logs" -Title "Security Logs Sam
 }
 
 } # end -not CisBaselineOnly (system inventory)
+
+if (-not $CisBaselineOnly -and -not $SkipExternalTools) {
+    Write-Host "`n[>] Automation: winPEAS check..." -ForegroundColor DarkCyan
+    Invoke-Check -Section "AUTOMATION" -CheckId "winpeas" -Title "winPEAS local privesc enumeration" -Severity "Info" -Test {
+        $binaryName = Get-WinPeasBinaryName
+        $winPeas = Resolve-WinBuildReviewTool -ToolName $binaryName
+        if ($RunWinPeas) {
+            if (-not $winPeas) {
+                Add-ReviewResult -Section "AUTOMATION" -CheckId "winpeas" -Title "winPEAS local privesc enumeration" `
+                    -Status "MANUAL" `
+                    -Summary "$binaryName not found in PATH or .\tools." `
+                    -Remediation "Run Install-WinBuildReviewTools.ps1 -InstallAll -AddToolsToUserPath"
+                return
+            }
+            try {
+                $result = Invoke-WinPeasCollection -OutputDirectory $OutputPath `
+                    -Profile $WinPeasProfile `
+                    -FileTimestamp $timestamp `
+                    -IncludeDomainChecks:((Get-WindowsBuildRole) -eq 'Domain Controller')
+                $summaryParts = @("winPEAS ($WinPeasProfile) -> $($result.OutputFile) (exit $($result.ExitCode))")
+                if ($result.Parsers.Ran) {
+                    $derived = @()
+                    if ($result.Parsers.JsonFile) { $derived += (Split-Path -Leaf $result.Parsers.JsonFile) }
+                    if ($result.Parsers.HtmlFile) { $derived += (Split-Path -Leaf $result.Parsers.HtmlFile) }
+                    if ($result.Parsers.PdfFile) { $derived += (Split-Path -Leaf $result.Parsers.PdfFile) }
+                    if ($derived.Count -gt 0) {
+                        $summaryParts += "parsers: $($derived -join ', ')"
+                    }
+                    if ($result.Parsers.Errors.Count -gt 0) {
+                        $summaryParts += "parser warnings: $($result.Parsers.Errors -join '; ')"
+                    }
+                }
+                Add-ReviewResult -Section "AUTOMATION" -CheckId "winpeas" -Title "winPEAS local privesc enumeration" `
+                    -Status "INFO" `
+                    -Summary ($summaryParts -join '. ') `
+                    -Evidence @{
+                        Binary     = $result.Binary
+                        OutputFile = $result.OutputFile
+                        ExitCode   = $result.ExitCode
+                        Profile    = $result.Profile
+                        Arguments  = $result.Arguments
+                        JsonFile   = $result.Parsers.JsonFile
+                        HtmlFile   = $result.Parsers.HtmlFile
+                        PdfFile    = $result.Parsers.PdfFile
+                        ParserErrors = $result.Parsers.Errors
+                    } `
+                    -Remediation "Review winPEAS output for AlwaysInstallElevated, services, tokens, DLL hijacks, and credential stores."
+            }
+            catch {
+                Add-ReviewResult -Section "AUTOMATION" -CheckId "winpeas" -Title "winPEAS local privesc enumeration" `
+                    -Status "ERROR" -Summary $_.Exception.Message `
+                    -Remediation "Re-run with elevated shell or increase timeout; verify $binaryName runs manually."
+            }
+            return
+        }
+
+        if ($winPeas) {
+            Add-ReviewResult -Section "AUTOMATION" -CheckId "winpeas" -Title "winPEAS local privesc enumeration" `
+                -Status "MANUAL" `
+                -Summary "$binaryName found at $winPeas - run with -RunWinPeas (Focused profile by default)" `
+                -Remediation "Install-WinBuildReviewTools.ps1 -InstallAll -AddToolsToUserPath; WinBuildReview.ps1 -RunWinPeas"
+        }
+        else {
+            Add-ReviewResult -Section "AUTOMATION" -CheckId "winpeas" -Title "winPEAS local privesc enumeration" `
+                -Status "MANUAL" `
+                -Summary "$binaryName not installed. Native deep privesc checks still run in PRIVILEGE ESCALATION section." `
+                -Remediation "Run Install-WinBuildReviewTools.ps1 -InstallAll -AddToolsToUserPath"
+        }
+    }
+}
+elseif ($SkipExternalTools) {
+    Add-ReviewResult -Section "AUTOMATION" -CheckId "winpeas" -Title "winPEAS local privesc enumeration" `
+        -Status "SKIP" -Summary "Skipped (-SkipExternalTools)." -Severity "Info"
+}
 
 $cisScan = Get-CisScanGuidance
 Add-ReviewResult -Section "AUTOMATION" -CheckId "cis-scan" -Title "CIS Benchmark Scan (MS/DC)" `
