@@ -182,9 +182,34 @@ function Test-ToolCommand {
 function Get-PythonCommand {
     foreach ($name in @("python", "py", "python3")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd }
+        if ($cmd -and $cmd.Source -notmatch '(?i)\\WindowsApps\\python(3)?\.exe$') {
+            return $cmd
+        }
     }
+
+    $pythonCoreRoot = Join-Path $env:LOCALAPPDATA "Python"
+    if (Test-Path $pythonCoreRoot) {
+        $pythonExe = Get-ChildItem -Path $pythonCoreRoot -Filter "python.exe" -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+        if ($pythonExe) {
+            return Get-Command $pythonExe.FullName
+        }
+    }
+
     return $null
+}
+
+function Set-PythonCliUserEnvironment {
+    $existing = [Environment]::GetEnvironmentVariable("PYTHONUNBUFFERED", "User")
+    if ($existing -eq "1") {
+        Write-Step "User PYTHONUNBUFFERED already set"
+        return
+    }
+
+    [Environment]::SetEnvironmentVariable("PYTHONUNBUFFERED", "1", "User")
+    $env:PYTHONUNBUFFERED = "1"
+    Write-Step "Set user PYTHONUNBUFFERED=1 (ROADrecon/Prowler show output immediately in PowerShell)"
 }
 
 function Get-PythonScriptsDirectory {
@@ -519,6 +544,7 @@ if (-not $CheckOnly) {
             throw "Python not found. $pyHint"
         }
         Install-PythonReviewTools -PythonCommand $pythonCmd -UpgradePackages:$Upgrade
+        Set-PythonCliUserEnvironment
     }
 
     if ($InstallAzureHound) {
@@ -536,6 +562,7 @@ if (-not $CheckOnly) {
             elseif ($InstallPythonTools) {
                 Write-WarnStep "Could not resolve Python Scripts directory for PATH. Run: python -m pip install --upgrade prowler roadrecon; then add the Scripts path pip reports to user PATH."
             }
+            Set-PythonCliUserEnvironment
         }
     }
 }
@@ -641,6 +668,7 @@ else {
 Write-Host "`nAfter installing, log in and run the review:" -ForegroundColor Cyan
 Write-Host "  az login"
 Write-Host "  ./AzureCloudReviewv1.ps1 -RunProwler"
+Write-Host "  .\Start-RoadreconAuth.ps1"
 Write-Host "  pwsh ./Get-AzureHoundRefreshToken.ps1"
 Write-Host "  azurehound list -r `"<refresh-token>`" -t <tenant> -o ./tools/azurehound.json"
 Write-BloodHoundCeInstallHint

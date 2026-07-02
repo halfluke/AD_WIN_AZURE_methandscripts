@@ -4,7 +4,7 @@ Pentester-focused **AD-only** automation aligned to `Draft_AD_Methodology_FINAL.
 
 | Item | Value |
 |------|--------|
-| Script | `ADReviewv1.ps1` (**v1.0.5**) |
+| Script | `ADReviewv1.ps1` (**v1.0.6**) |
 | Shared | `ADReview.Common.ps1` |
 | Installer | `Install-ADReviewTools.ps1` |
 | Workbook | `Draft_AD_Methodology_FINAL.xlsx` |
@@ -53,7 +53,7 @@ Review script run (CSV/HTML output):
 | `-Domain` | DNS domain (default: current logon domain) |
 | `-Server` | DC to bind (default: PDC emulator) |
 | `-OutputPath` | Report directory (default: script folder) |
-| `-RunSharpHound` | Run SharpHound if found in PATH or `.\tools` |
+| `-RunSharpHound` | Run SharpHound if found in PATH or `.\tools` (uses `--nocache`) |
 | `-RunPingCastle` | Run PingCastle healthcheck if available |
 | `-PingCastleServer` | DC FQDN for PingCastle `--server` (default: PDC). OSS PingCastle has **no** `--timeout`; offline DCs in AD still slow the scan |
 | `-RunPurpleKnight` | Run `Invoke-PKAssessment` if Purple Knight installed |
@@ -101,7 +101,7 @@ Without `-Run*` flags, the script **detects** tools and emits **MANUAL** guidanc
 | `ADReview-<timestamp>.txt` | Full log |
 | `ADReview-<timestamp>.csv` | Structured results |
 | `ADReview-<timestamp>.html` | Summary table |
-| `<sharphound-timestamp>_sharphound-<domain>.zip` | If `-RunSharpHound` (SharpHound prepends collection time) |
+| `<sharphound-timestamp>_sharphound-<domain>.zip` | If `-RunSharpHound` (SharpHound prepends collection time; collection uses `--nocache` — no Base64 SID cache file in cwd) |
 | `pingcastle-<timestamp>/` | If `-RunPingCastle` |
 
 ---

@@ -16,9 +16,9 @@ Pentester-focused assessment pack with **three separate tracks**. Each track has
 
 | Track | Script | Methodology workbook | Version | Scope |
 |-------|--------|----------------------|---------|--------|
-| **Active Directory** | `ADReviewv1.ps1` | `Draft_AD_Methodology_FINAL.xlsx` | 1.0.5 | AD objects, domain/forest policy, trusts, delegation, ADCS posture, hybrid Entra |
+| **Active Directory** | `ADReviewv1.ps1` | `Draft_AD_Methodology_FINAL.xlsx` | 1.0.6 | AD objects, domain/forest policy, trusts, delegation, ADCS posture, hybrid Entra |
 | **Windows build / host** | `WinBuildReview.ps1` | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | 2.0.6 | OS services, patching, SMB, firewall, Defender, local GPO, local privesc |
-| **Azure / Entra cloud** | `AzureCloudReviewv1.ps1` | `Draft_Methodology_Azure_FINAL.xlsx` | 1.0.0 | Entra ID, Azure resources, RBAC, CIS-aligned cloud misconfigs |
+| **Azure / Entra cloud** | `AzureCloudReviewv1.ps1` | `Draft_Methodology_Azure_FINAL.xlsx` | 1.0.1 | Entra ID, Azure resources, RBAC, CIS-aligned cloud misconfigs |
 
 | Track | Out of scope (use another track) |
 |-------|----------------------------------|
@@ -74,7 +74,7 @@ Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZUR
 | `Install-AzureReviewTools.ps1` | Installs pip tools | 5.1+ (Windows) or **7+ pwsh** (Linux/macOS) | Windows, Linux, or macOS with network |
 | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` | No | 5.1+ / pwsh | Same as Azure review |
 
-**Prowler:** Python **3.10–3.12** only (not 3.14). **ROADrecon:** 3.10+.
+**Prowler:** Python **3.10–3.12** only (not 3.14). Prefer **pythoncore** over the Windows Store `python` stub. **ROADrecon:** 3.10+; use **`Start-RoadreconAuth.ps1`** / **`Start-RoadreconGui.ps1`** on Windows Server (see [AZURE_README.md](AZURE_README.md)).
 
 Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy **domain** from a modern RSAT jump host.
 
@@ -91,6 +91,8 @@ Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy
 | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | Build |
 | `AzureCloudReviewv1.ps1`, `AzureCloudReview.Common.ps1`, `Install-AzureReviewTools.ps1` | Azure |
 | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` | Azure |
+| `Start-RoadreconAuth.ps1` | Azure (ROADrecon device-code auth helper) |
+| `Start-RoadreconGui.ps1` | Azure (ROADrecon GUI — avoids PowerShell stderr noise) |
 | `Get-AzureHoundRefreshToken.ps1` | Azure (AzureHound auth helper) |
 | `Draft_Methodology_Azure_FINAL.xlsx` | Azure |
 | `tools/` | Shared binaries (SharpHound, PingCastle, AzureHound — `.exe` on Windows, plain binary on Linux) |
@@ -181,7 +183,7 @@ Install: [Community Edition quickstart](https://bloodhound.specterops.io/get-sta
 
 If install fails with `no matching manifest for windows(...)/amd64`, switch Docker Desktop to Linux containers (tray icon → **Switch to Linux containers…**), then retry.
 
-Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure auth is **two steps**: `Get-AzureHoundRefreshToken.ps1` (Azure PowerShell client token), then `azurehound list` — **do not** reuse ROADrecon’s `.roadtools_auth` ([AZURE_README.md](AZURE_README.md#azurehound-attack-paths)).
+Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure identity auth: **`Start-RoadreconAuth.ps1`** (ROADrecon) and **`Get-AzureHoundRefreshToken.ps1`** (AzureHound) — separate tokens; do not reuse `.roadtools_auth` for AzureHound ([AZURE_README.md](AZURE_README.md#azurehound-attack-paths)).
 
 ---
 
@@ -222,14 +224,16 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure a
 | Component | Version | Notes |
 |-----------|---------|--------|
 | AD methodology | **FINAL** (`Draft_AD_Methodology_FINAL.xlsx`) | ~129 workbook rows (~110 in-scope); ~50 script checks |
-| `ADReviewv1.ps1` | **1.0.5** | SharpHound, PingCastle, Purple Knight, `-PingCastleServer` |
+| `ADReviewv1.ps1` | **1.0.6** | SharpHound `--nocache`, PingCastle, Purple Knight, `-PingCastleServer` |
 | `Install-ADReviewTools.ps1` | **1.0.0** | SharpHound + PingCastle (Windows) |
 | WinBuild methodology | **FINAL** (`Draft_Windows-Build-Review-Methodology_FINAL.xlsx`) | ~67 workbook rows; ~61 script checks |
 | `WinBuildReview.ps1` | **2.0.6** | Native deep privesc checks; optional `-RunWinPeas` → timestamped winpeas `.out` + JSON/HTML/PDF when parsers installed |
 | `Install-WinBuildReviewTools.ps1` | **1.1.0** | winPEAS + PEASS parsers (Windows) |
 | Azure methodology | **FINAL** (`Draft_Methodology_Azure_FINAL.xlsx`) | ~91 workbook rows, 35 sections; ~57 script checks |
-| `AzureCloudReviewv1.ps1` | **1.0.0** | az CLI + optional Prowler |
-| `Install-AzureReviewTools.ps1` | **1.0.0** | az, pip tools, AzureHound (Windows; Linux/macOS via `pwsh`) |
+| `AzureCloudReviewv1.ps1` | **1.0.1** | az CLI, optional Prowler (UTF-8 wrapper), §35 ROADrecon/AzureHound hints |
+| `Install-AzureReviewTools.ps1` | **1.0.0** | az, pip tools, AzureHound; `PYTHONUNBUFFERED=1`; pythoncore before WindowsApps stub |
+| `Start-RoadreconAuth.ps1` | — | ROADrecon device-code auth (tenant + unbuffered stdout) |
+| `Start-RoadreconGui.ps1` | — | ROADrecon GUI without PowerShell stderr noise |
 | `Get-AzureHoundRefreshToken.ps1` | — | AzureHound device-code auth → `./tools/azurehound.refresh` |
 | Lab deploy | **1.0.0** | Tier 2 lab, `-IncludeExtendedLab` |
 | Lab destroy | **1.0.2** | RG delete + KV/Cognitive purge + tag sweep |
@@ -249,6 +253,9 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure a
 .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
 # Linux: pwsh ./Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
 az login
+.\Start-RoadreconAuth.ps1
+roadrecon gather
+.\Start-RoadreconGui.ps1
 .\Get-AzureHoundRefreshToken.ps1
 # Linux: pwsh ./Get-AzureHoundRefreshToken.ps1
 # Windows PowerShell — on Linux use bash from AZURE_README.md (Linux / Kali):

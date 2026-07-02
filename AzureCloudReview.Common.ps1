@@ -15,6 +15,44 @@ function Test-CommandAvailable {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Invoke-ProwlerNative {
+    <#
+    .SYNOPSIS
+        Run prowler with UTF-8 stdout on Windows (avoids banner UnicodeEncodeError on cp1252 consoles).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [string[]]$ArgumentList
+    )
+
+    $savedUtf8 = $env:PYTHONUTF8
+    $savedIo = $env:PYTHONIOENCODING
+    $prevEap = $ErrorActionPreference
+    try {
+        # Prowler 5.31+ banner uses box-drawing chars (U+2502) that crash on Server cp1252 consoles.
+        $env:PYTHONUTF8 = "1"
+        $env:PYTHONIOENCODING = "utf-8"
+        if ($env:OS -match '(?i)Windows') {
+            try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
+        }
+
+        $ErrorActionPreference = 'Continue'
+        & prowler @ArgumentList 2>&1 | ForEach-Object {
+            $line = $_.ToString()
+            Write-Host $line
+            if ($script:TxtLog) { Write-Log $line }
+        }
+        return $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+        if ($null -eq $savedUtf8) { Remove-Item Env:PYTHONUTF8 -ErrorAction SilentlyContinue }
+        else { $env:PYTHONUTF8 = $savedUtf8 }
+        if ($null -eq $savedIo) { Remove-Item Env:PYTHONIOENCODING -ErrorAction SilentlyContinue }
+        else { $env:PYTHONIOENCODING = $savedIo }
+    }
+}
+
 function Resolve-AzCliExecutable {
     if ($script:AzCliExecutable -and (Test-Path -LiteralPath $script:AzCliExecutable)) {
         return $script:AzCliExecutable

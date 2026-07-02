@@ -49,7 +49,7 @@
     .\ADReviewv1.ps1 -Server "DC01" -OutputPath "C:\Reviews\AD" -IncludeEntra
 
 .NOTES
-    Version     : 1.0.5
+    Version     : 1.0.6
     Methodology : Draft_AD_Methodology_FINAL.xlsx
     Requires    : RSAT ActiveDirectory module, domain user with AD read access
     Optional    : PingCastle, Purple Knight, SharpHound (see Install-ADReviewTools.ps1), Microsoft Graph PowerShell
@@ -71,7 +71,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptVersion = "1.0.5"
+$scriptVersion = "1.0.6"
 $startTime     = Get-Date
 $timestamp     = $startTime.ToString("yyyyMMdd-HHmmss")
 $scriptPath    = $MyInvocation.MyCommand.Path
@@ -139,7 +139,7 @@ if (-not $SkipExternalTools) {
             $zipBase = "sharphound-$sanitizedDomain"
             $collectionStart = Get-Date
             try {
-                & $sharpHound -c All --domain $script:DomainDns --outputdirectory $OutputPath --zipfilename $zipBase 2>&1 | ForEach-Object { Write-Host $_ }
+                & $sharpHound -c All --domain $script:DomainDns --outputdirectory $OutputPath --zipfilename $zipBase --nocache 2>&1 | ForEach-Object { Write-Host $_ }
                 $zipPath = Resolve-SharpHoundCollectionZip -OutputDirectory $OutputPath `
                     -ExpectedBaseName $zipBase -NotBefore $collectionStart.AddMinutes(-1)
                 if (-not $zipPath) {
@@ -162,7 +162,7 @@ if (-not $SkipExternalTools) {
         if ($sharpHound) {
             Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "BloodHound / SharpHound collection" `
                 -Status "MANUAL" `
-                -Summary "SharpHound found at $sharpHound - run with -RunSharpHound or: SharpHound.exe -c All --domain $($script:DomainDns)" `
+                -Summary "SharpHound found at $sharpHound - run with -RunSharpHound or: SharpHound.exe -c All --domain $($script:DomainDns) --nocache" `
                 -Remediation "Ingest zip into BloodHound CE for attack-path analysis. $bloodHoundCeHint"
         }
         else {

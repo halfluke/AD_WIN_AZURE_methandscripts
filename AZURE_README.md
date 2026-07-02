@@ -4,10 +4,12 @@ Pentester-focused **Entra ID + Azure resource** automation aligned to `Draft_Met
 
 | Item | Value |
 |------|--------|
-| Script | `AzureCloudReviewv1.ps1` (**v1.0.0**) |
+| Script | `AzureCloudReviewv1.ps1` (**v1.0.1**) |
 | Shared | `AzureCloudReview.Common.ps1` |
 | Installer | `Install-AzureReviewTools.ps1` |
 | Lab | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` (**v1.0.2** destroy) |
+| ROADrecon auth | `Start-RoadreconAuth.ps1` → `.roadtools_auth` |
+| ROADrecon GUI | `Start-RoadreconGui.ps1` → http://127.0.0.1:5000 |
 | AzureHound auth | `Get-AzureHoundRefreshToken.ps1` → `./tools/azurehound.refresh` |
 | Workbook | `Draft_Methodology_Azure_FINAL.xlsx` |
 
@@ -89,12 +91,13 @@ Cloud review run (`AzureCloudReviewv1.ps1`; example uses `-RunProwler`):
 | `AzureCloudReview-<timestamp>.html` | Summary table |
 | `prowler-<sub>-<timestamp>/` | If `-RunProwler` (CSV, HTML, compliance CSV) |
 
-**Prowler notes:** Scan completes with **INFO** in the review script even when findings FAIL (Prowler exit code 3 is normal). Use Python **3.10–3.12**, not 3.14.
+**Prowler notes:** Scan completes with **INFO** in the review script even when findings FAIL (Prowler exit code 3 is normal). Use Python **3.10–3.12**, not 3.14. On Windows Server, Prowler **5.31+** can crash with `UnicodeEncodeError` (banner uses `│` / U+2502) when the console is **cp1252** — `-RunProwler` sets `PYTHONUTF8=1` for you.
 
 Standalone Prowler:
 
-```bash
-prowler azure --az-cli-auth --subscription-ids <id> --compliance cis_5.0_azure \
+```powershell
+$env:PYTHONUTF8 = '1'
+prowler azure --az-cli-auth --subscription-ids <id> --compliance cis_5.0_azure `
   -M csv html -o ./prowler-output --ignore-exit-code-3
 ```
 
@@ -115,7 +118,7 @@ pwsh ./Install-AzureReviewTools.ps1               # check only (Linux/macOS)
 | `-InstallAzureHound` | Download AzureHound into `./tools` (Windows `.exe` or Linux/macOS binary matched to CPU arch) |
 | `-Upgrade` | `pip --upgrade` with `-InstallPythonTools`; AzureHound update when missing, tag unknown, or newer (skips if at latest) |
 | `-InstallAll` | All three |
-| `-AddToolsToUserPath` | Append `./tools` + Python scripts dir (`Scripts` on Windows, often `~/.local/bin` on Linux) to user PATH |
+| `-AddToolsToUserPath` | Append `./tools` + Python scripts dir; sets user **`PYTHONUNBUFFERED=1`** (ROADrecon device code / cleaner Python CLI on Windows Server) |
 
 Shared download folder: **`./tools`** (AzureHound, `azurehound.refresh`, `azurehound.json`).
 
@@ -157,26 +160,24 @@ Sign in with an identity that has **read access in that tenant** (Global Reader,
 
 #### 2. Authenticate (device code)
 
-**Do not** use plain `roadrecon auth --device-code` alone on current tenants — it often lands on the **Microsoft Services** tenant (`f8cdef31-…`) or uses a client blocked for legacy **AAD Graph** (`graph.windows.net` → HTTP 403).
-
-Remove any stale token file first:
+Use **`Start-RoadreconAuth.ps1`** (recommended). It applies the correct **tenant** + **Azure CLI client**, sets **`PYTHONUNBUFFERED=1`** so the device code appears immediately in PowerShell on Windows Server (plain `roadrecon auth` may show nothing until Ctrl+C), and writes `.roadtools_auth` in the current directory.
 
 ```powershell
-Remove-Item .roadtools_auth -Force -ErrorAction SilentlyContinue
+.\Start-RoadreconAuth.ps1
+# or: .\Start-RoadreconAuth.ps1 -Tenant contoso.onmicrosoft.com -ForceReauth
 ```
 
-Auth with **tenant** (`-t`, not `-d`) and the **Azure CLI** public client ID (Microsoft first-party app; workaround for AAD Graph blocks — see [ROADtools issue #147](https://github.com/dirkjanm/ROADtools/issues/147)):
+Tenant defaults from `az account show` if omitted.
 
-```powershell
-roadrecon auth --device-code -c 04b07795-8ddb-461a-bbee-02f9e1bf7b46 -t contoso.onmicrosoft.com
-```
+**Do not** use plain `roadrecon auth --device-code` alone on current tenants — it often lands on the **Microsoft Services** tenant (`f8cdef31-…`) or uses a client blocked for legacy **AAD Graph** (`graph.windows.net` → HTTP 403). The helper uses `-t` (not `-d`) and client `04b07795-…` (see [ROADtools issue #147](https://github.com/dirkjanm/ROADtools/issues/147)).
 
-Replace `contoso.onmicrosoft.com` with your tenant domain or GUID from `az account show`.
+| Item | Value |
+|------|--------|
+| Helper | `Start-RoadreconAuth.ps1` |
+| OAuth client | `04b07795-…` (**Azure CLI**) |
+| Token file | `.roadtools_auth` (cwd) |
 
-| Flag | Meaning |
-|------|---------|
-| `-t` / `--tenant` | Entra tenant to authenticate **into** |
-| `-c` / `--client` | OAuth public client ID (`04b07795-…` = **Azure CLI**) |
+`Install-AzureReviewTools.ps1 -InstallPythonTools` also sets user **`PYTHONUNBUFFERED=1`** so manual `roadrecon` / `prowler` invocations behave better in new shells.
 
 Default ROADrecon client (`1b730954-…`, Azure AD PowerShell) is often blocked for directory enumeration.
 
@@ -184,17 +185,19 @@ Default ROADrecon client (`1b730954-…`, Azure AD PowerShell) is often blocked 
 
 ```powershell
 roadrecon gather
-roadrecon gui
+.\Start-RoadreconGui.ps1
 ```
 
-**Success:** no `Error 403` lines; hundreds of HTTP requests (not ~19); GUI shows users, apps, roles, etc.
+Open **http://127.0.0.1:5000** in a browser on the **same machine** (e.g. RDP session on the DC). Plain `roadrecon gui` often works too, but PowerShell may show Flask’s Werkzeug **“development server”** stderr line as a red `NativeCommandError` — that is **not** a failure; the GUI is still running. Use `Start-RoadreconGui.ps1` to avoid the scary red line.
+
+**Success:** no `Error 403` lines during gather; hundreds of HTTP requests (not ~19); GUI shows users, apps, roles, etc.
 
 If gather still hits AAD Graph 403s, upgrade ROADtools and try Microsoft Graph mode (newer builds):
 
 ```powershell
 python -m pip install --upgrade roadrecon roadtx
 roadrecon gather --msgraph
-roadrecon gui --msgraph
+.\Start-RoadreconGui.ps1 -MsGraph
 ```
 
 #### 4. Built-in analysis commands
@@ -505,7 +508,7 @@ rt=$(cat ./tools/azurehound.refresh)
 
 Optional single subscription: add `-b "$(az account show --query id -o tsv)"` before `-o`.
 
-Ingest `./tools/azurehound.json` in **BloodHound CE** (Docker with Linux containers). ROADrecon: `roadrecon auth --device-code -c 04b07795-8ddb-461a-bbee-02f9e1bf7b46 -t <tenant>` then `roadrecon gather` — separate auth from AzureHound.
+Ingest `./tools/azurehound.json` in **BloodHound CE** (Docker with Linux containers). ROADrecon: `pwsh ./Start-RoadreconAuth.ps1` then `roadrecon gather` — separate auth from AzureHound.
 
 ---
 

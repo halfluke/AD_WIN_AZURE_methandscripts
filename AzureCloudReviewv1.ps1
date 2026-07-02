@@ -25,7 +25,7 @@
     .\AzureCloudReviewv1.ps1 -SubscriptionId "00000000-0000-0000-0000-000000000000"
 
 .NOTES
-    Version : 1.0.0
+    Version : 1.0.1
     Requires: Azure CLI (az), Reader or higher on in-scope subscriptions.
     Optional: Prowler, Microsoft Graph PowerShell, AzureHound, ROADrecon.
 #>
@@ -50,7 +50,7 @@ $ErrorActionPreference = "Stop"
 # Setup
 # ---------------------------------------------------------------------------
 
-$scriptVersion = "1.0.0"
+$scriptVersion = "1.0.1"
 $startTime     = Get-Date
 $timestamp     = $startTime.ToString("yyyyMMdd-HHmmss")
 $scriptPath    = $MyInvocation.MyCommand.Path
@@ -139,8 +139,7 @@ if ($RunProwler) {
                 "--ignore-exit-code-3"
             )
             try {
-                & prowler @pArgs
-                $prowlerExit = $LASTEXITCODE
+                $prowlerExit = Invoke-ProwlerNative -ArgumentList $pArgs
                 $reportFiles = @(Get-ChildItem -Path $prowlerOut -Recurse -File -ErrorAction SilentlyContinue |
                     Where-Object { $_.Extension -in ".csv", ".html" })
 
@@ -1013,8 +1012,8 @@ if (-not $SkipIdentityTools) {
         if (Test-CommandAvailable "roadrecon") {
             Add-ReviewResult -Section $secIdentity -CheckId "identity-roadrecon" `
                 -Title "Entra ID tenant recon (ROADrecon)" -Status "MANUAL" `
-                -Summary "roadrecon found  -  run: roadrecon auth / gather / gui" `
-                -Remediation 'roadrecon gather -d tenant.onmicrosoft.com -ju'
+                -Summary "roadrecon found  -  Step 1: .\Start-RoadreconAuth.ps1  Step 2: roadrecon gather  Step 3: .\Start-RoadreconGui.ps1" `
+                -Remediation "Auth: Start-RoadreconAuth.ps1. Gather: roadrecon gather. GUI: Start-RoadreconGui.ps1 (http://127.0.0.1:5000). See AZURE_README.md."
         }
         else {
             Add-ReviewResult -Section $secIdentity -CheckId "identity-roadrecon" `
