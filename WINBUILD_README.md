@@ -1,6 +1,6 @@
 # Windows build review
 
-Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` (CIS-oriented). For AD object review use [AD_README.md](AD_README.md). For Azure cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
+Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` (~61 workbook rows; ~55 script checks; CIS-oriented). For AD object review use [AD_README.md](AD_README.md). For Azure cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
 
 | Item | Value |
 |------|--------|
@@ -8,9 +8,13 @@ Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Bu
 | Shared | `WinBuildReview.Common.ps1`, `WinBuildReview.CisProfiles.ps1` |
 | Workbook | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` |
 
-**Scope:** OS services, patching signals, SMB, firewall, Defender, local GPO on **member servers and DCs**. **No** AD object checks, **no** Azure checks, **no** external tools.
+**Scope:** OS services, patching signals, SMB, firewall, Defender, local GPO on **member servers and DCs** (on-prem or **Azure VMs**). **No** AD object checks, **no** Azure subscription checks, **no** external tools.
+
+**Platform:** **Windows only** — run elevated on **each** in-scope host.
 
 Workbook columns match the pack-wide **13-column** schema (see [README.md](README.md#repository-layout)); CIS benchmark versions per OS are preserved in **Notes** (`[CIS Refs]: …`).
+
+**Workbook vs runner:** ~61 workbook rows vs ~55 script checks (closest alignment of the three tracks). Triage by **Title → column F**; complete remaining controls from the CIS PDF where the script emits `REVIEW` / `MANUAL`. See [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks).
 
 ---
 
@@ -74,7 +78,7 @@ Use `-CisBaselineOnly` for lab runs; add `-StrictCis` for a short smoke test.
 
 ## Limitations (v2)
 
-Password policy, patch posture, and full CIS PDF pass remain `REVIEW` / `MANUAL` by design. Complete remaining controls from the matching CIS PDF on [CIS Workbench](https://www.cisecurity.org/cis-benchmarks).
+Password policy, patch posture, and full CIS PDF pass remain `REVIEW` / `MANUAL` by design. Complete remaining controls from the matching CIS PDF on [CIS Workbench](https://www.cisecurity.org/cis-benchmarks) and triage CSV rows against the workbook by **Title → column F** ([README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks)).
 
 ---
 

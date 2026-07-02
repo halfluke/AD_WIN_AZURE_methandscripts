@@ -1,12 +1,15 @@
 <#
 .SYNOPSIS
-    Install and verify Azure cloud review tooling on Windows.
+    Install and verify Azure cloud review tooling on Windows, Linux, or macOS.
 
 .DESCRIPTION
     Checks PATH for az, prowler, roadrecon, and azurehound. Optionally installs:
-      - Azure CLI via winget (-InstallAzCli)
+      - Azure CLI (-InstallAzCli): winget on Windows; apt or Microsoft script on Debian/Ubuntu Linux
       - Python packages prowler and roadrecon via pip (-InstallPythonTools)
-      - AzureHound Windows binary into .\tools (-InstallAzureHound)
+      - AzureHound binary into .\tools (-InstallAzureHound): OS/arch matched from GitHub releases
+
+    Run without switches to report status only. Use -InstallAll for a typical lab setup.
+    On Linux/macOS, run with PowerShell 7+: pwsh ./Install-AzureReviewTools.ps1 -InstallAll
 
     Run without switches to report status only. Use -InstallAll for a typical lab setup.
 
@@ -17,7 +20,7 @@
     pip install prowler and roadrecon (and ensure pip is available).
 
 .PARAMETER InstallAzureHound
-    Download azurehound.exe from SpecterOps/AzureHound latest release into .\tools.
+    Download AzureHound from SpecterOps/AzureHound latest release into ./tools (Windows .exe or Unix binary).
 
 .PARAMETER InstallAll
     Equivalent to -InstallAzCli -InstallPythonTools -InstallAzureHound.
@@ -26,7 +29,7 @@
     Pass --upgrade to pip when installing Python packages.
 
 .PARAMETER AddToolsToUserPath
-    Append .\tools and the current Python Scripts directory to the user PATH permanently.
+    Append ./tools and the current Python scripts directory to the user PATH permanently.
 
 .PARAMETER CheckOnly
     Report only; do not install anything (default when no install switches are passed).
@@ -35,16 +38,14 @@
     .\Install-AzureReviewTools.ps1
 
 .EXAMPLE
-    .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
+    pwsh ./Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
 
 .EXAMPLE
     .\Install-AzureReviewTools.ps1 -InstallPythonTools -Upgrade
 
 .NOTES
-    Requires an internet connection for downloads. Azure CLI and AzureHound installs may
-    need an elevated shell or winget user consent prompts.
-
-    BloodHound CE GUI: Docker Desktop + bloodhound-cli — https://bloodhound.specterops.io/get-started/quickstart/community-edition-quickstart
+    Requires an internet connection for downloads. Azure CLI install on Linux may require sudo.
+    BloodHound CE GUI: Docker + bloodhound-cli — https://bloodhound.specterops.io/get-started/quickstart/community-edition-quickstart
 #>
 
 [CmdletBinding()]
@@ -61,7 +62,36 @@ param(
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $toolsDir = Join-Path $scriptDir "tools"
-$azureHoundPath = Join-Path $toolsDir "azurehound.exe"
+
+function Get-InstallPlatform {
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        if ($IsWindows) { $family = "windows" }
+        elseif ($IsMacOS) { $family = "darwin" }
+        elseif ($IsLinux) { $family = "linux" }
+        else { $family = "windows" }
+    }
+    else {
+        $family = "windows"
+    }
+
+    $arch = "amd64"
+    if ($family -eq "windows") {
+        if ($env:PROCESSOR_ARCHITECTURE -match "ARM64") { $arch = "arm64" }
+    }
+    else {
+        $machine = & uname -m 2>$null
+        if ($machine -match "^(aarch64|arm64)$") { $arch = "arm64" }
+    }
+
+    return [PSCustomObject]@{
+        Family = $family
+        Arch   = $arch
+    }
+}
+
+$platform = Get-InstallPlatform
+$azureHoundFileName = if ($platform.Family -eq "windows") { "azurehound.exe" } else { "azurehound" }
+$azureHoundPath = Join-Path $toolsDir $azureHoundFileName
 
 if ($InstallAll) {
     $InstallAzCli = $true
@@ -116,16 +146,20 @@ function Test-ToolCommand {
 
     foreach ($dir in $ExtraPaths) {
         if (-not $dir -or -not (Test-Path $dir)) { continue }
-        $candidate = Join-Path $dir $Name
-        if ($Name -notmatch '\.') { $candidate = Join-Path $dir "$Name.exe" }
-        if (Test-Path $candidate) {
-            return [PSCustomObject]@{
-                Name       = $Name
-                Found      = $true
-                Source     = $candidate
-                Version    = $null
-                Detail     = $candidate
-                InPathHint = $false
+        $candidates = @(
+            (Join-Path $dir $Name)
+            (Join-Path $dir "$Name.exe")
+        )
+        foreach ($candidate in $candidates) {
+            if (Test-Path $candidate) {
+                return [PSCustomObject]@{
+                    Name       = $Name
+                    Found      = $true
+                    Source     = $candidate
+                    Version    = $null
+                    Detail     = $candidate
+                    InPathHint = $false
+                }
             }
         }
     }
@@ -169,11 +203,19 @@ function Get-PythonScriptsDirectory {
     $scriptsDir = Join-Path (Split-Path -Parent $pythonExe) "Scripts"
     if (Test-Path $scriptsDir) { return $scriptsDir }
 
+    if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $IsWindows) {
+        $binDir = Join-Path (Split-Path -Parent $pythonExe) "bin"
+        if (Test-Path $binDir) { return $binDir }
+    }
+
     try {
         $userBase = & $pythonExe -m site --user-base 2>$null
         if ($userBase) {
-            $userScripts = Join-Path $userBase.Trim() "Scripts"
-            if (Test-Path $userScripts) { return $userScripts }
+            $userBase = $userBase.Trim()
+            foreach ($sub in @("Scripts", "bin")) {
+                $userScripts = Join-Path $userBase $sub
+                if (Test-Path $userScripts) { return $userScripts }
+            }
         }
     }
     catch { }
@@ -235,18 +277,63 @@ function Install-AzureCli {
         return
     }
 
-    $winget = Get-Command winget -ErrorAction SilentlyContinue
-    if (-not $winget) {
-        throw "winget not found. Install Azure CLI manually: https://learn.microsoft.com/cli/azure/install-azure-cli"
+    if ($platform.Family -eq "windows") {
+        $winget = Get-Command winget -ErrorAction SilentlyContinue
+        if (-not $winget) {
+            throw "winget not found. Install Azure CLI manually: https://learn.microsoft.com/cli/azure/install-azure-cli"
+        }
+
+        Write-Step "Installing Azure CLI via winget"
+        & winget install --id Microsoft.AzureCLI -e --accept-source-agreements --accept-package-agreements
+        if ($LASTEXITCODE -ne 0) {
+            throw "winget Azure CLI install failed (exit $LASTEXITCODE). Install manually from Microsoft docs."
+        }
+
+        Write-WarnStep "Open a new PowerShell window if 'az' is still not found (PATH refresh)."
+        return
     }
 
-    Write-Step "Installing Azure CLI via winget"
-    & winget install --id Microsoft.AzureCLI -e --accept-source-agreements --accept-package-agreements
-    if ($LASTEXITCODE -ne 0) {
-        throw "winget Azure CLI install failed (exit $LASTEXITCODE). Install manually from Microsoft docs."
+    Write-Step "Installing Azure CLI on $($platform.Family) (may require sudo)"
+
+    if (Get-Command apt-get -ErrorAction SilentlyContinue) {
+        Write-Step "Trying apt-get install azure-cli..."
+        & sudo apt-get update
+        & sudo apt-get install -y azure-cli
+        if ($LASTEXITCODE -eq 0 -and (Test-ToolCommand "az").Found) {
+            return
+        }
+        Write-WarnStep "apt package 'azure-cli' unavailable or install failed; trying Microsoft package script..."
     }
 
-    Write-WarnStep "Open a new PowerShell window if 'az' is still not found (PATH refresh)."
+    if ((Test-Path "/etc/debian_version") -and (Get-Command curl -ErrorAction SilentlyContinue)) {
+        Write-Step "Running Microsoft InstallAzureCLIDeb script (requires sudo)..."
+        & bash -c "curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash"
+        if ($LASTEXITCODE -eq 0 -and (Test-ToolCommand "az").Found) {
+            return
+        }
+    }
+
+    throw "Could not install Azure CLI automatically on $($platform.Family). See https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
+}
+
+function Get-AzureHoundReleaseAsset {
+    param(
+        [Parameter(Mandatory)]$Release,
+        [Parameter(Mandatory)]$PlatformInfo
+    )
+
+    $pattern = switch ($PlatformInfo.Family) {
+        "windows" { "windows.*$($PlatformInfo.Arch).*\.zip$" }
+        "linux"   { "linux.*$($PlatformInfo.Arch).*\.zip$" }
+        "darwin"  { "darwin.*$($PlatformInfo.Arch).*\.zip$" }
+        default   { "windows.*amd64.*\.zip$" }
+    }
+
+    $asset = @($Release.assets | Where-Object { $_.name -match $pattern }) | Select-Object -First 1
+    if (-not $asset) {
+        $asset = @($Release.assets | Where-Object { $_.name -match "$($PlatformInfo.Family).+\.zip$" }) | Select-Object -First 1
+    }
+    return $asset
 }
 
 function Install-AzureHoundBinary {
@@ -256,33 +343,36 @@ function Install-AzureHoundBinary {
     }
 
     New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
-    Write-Step "Downloading AzureHound from SpecterOps/AzureHound latest release"
+    Write-Step "Downloading AzureHound ($($platform.Family)/$($platform.Arch)) from SpecterOps/AzureHound latest release"
 
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/SpecterOps/AzureHound/releases/latest" -Headers @{
         "User-Agent" = "Install-AzureReviewTools.ps1"
     }
 
-    $asset = $release.assets | Where-Object { $_.name -match 'windows.*amd64.*\.zip$' } | Select-Object -First 1
+    $asset = Get-AzureHoundReleaseAsset -Release $release -PlatformInfo $platform
     if (-not $asset) {
-        $asset = $release.assets | Where-Object { $_.name -match 'windows.*\.zip$' } | Select-Object -First 1
-    }
-    if (-not $asset) {
-        throw "Could not find a Windows AzureHound zip in the latest GitHub release."
+        throw "Could not find an AzureHound zip for $($platform.Family)/$($platform.Arch) in release $($release.tag_name)."
     }
 
-    $zipPath = Join-Path $env:TEMP "azurehound-$($release.tag_name).zip"
+    $zipPath = Join-Path $env:TEMP "azurehound-$($release.tag_name)-$($platform.Family).zip"
     Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zipPath -UseBasicParsing
 
-    $extractDir = Join-Path $env:TEMP "azurehound-extract"
+    $extractDir = Join-Path $env:TEMP "azurehound-extract-$PID"
     if (Test-Path $extractDir) { Remove-Item -Path $extractDir -Recurse -Force }
     Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
 
-    $binary = Get-ChildItem -Path $extractDir -Recurse -Filter "azurehound.exe" | Select-Object -First 1
+    $binary = Get-ChildItem -Path $extractDir -Recurse -File |
+        Where-Object { $_.Name -eq "azurehound" -or $_.Name -eq "azurehound.exe" } |
+        Select-Object -First 1
     if (-not $binary) {
-        throw "azurehound.exe not found inside downloaded archive."
+        throw "azurehound binary not found inside downloaded archive $($asset.name)."
     }
 
     Copy-Item -Path $binary.FullName -Destination $azureHoundPath -Force
+    if ($platform.Family -ne "windows") {
+        & chmod +x $azureHoundPath
+    }
+
     Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
     Remove-Item -Path $extractDir -Recurse -Force -ErrorAction SilentlyContinue
 
@@ -345,7 +435,7 @@ function Format-Status {
     return "MISSING"
 }
 
-Write-Host "`nAzure Review Tools - install / verify" -ForegroundColor Green
+Write-Host "`nAzure Review Tools - install / verify ($($platform.Family)/$($platform.Arch))" -ForegroundColor Green
 Write-Host "Script directory: $scriptDir`n"
 
 if (-not $CheckOnly) {
@@ -356,7 +446,13 @@ if (-not $CheckOnly) {
     $pythonCmd = Get-PythonCommand
     if ($InstallPythonTools) {
         if (-not $pythonCmd) {
-            throw "Python not found. Install Python 3.10+ from https://www.python.org/downloads/ (check 'Add python.exe to PATH')."
+            $pyHint = if ($platform.Family -eq "windows") {
+                "Install Python 3.10+ from https://www.python.org/downloads/ (check 'Add python.exe to PATH')."
+            }
+            else {
+                "Install Python 3.10+ (e.g. sudo apt install python3 python3-pip python3-venv on Debian/Kali)."
+            }
+            throw "Python not found. $pyHint"
         }
         Install-PythonReviewTools -PythonCommand $pythonCmd -UpgradePackages:$Upgrade
     }
@@ -422,7 +518,12 @@ else {
     Write-Host "  .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath`n" -ForegroundColor White
 
     if ($missing.Name -contains "az") {
-        Write-Host "  az        : winget install Microsoft.AzureCLI" -ForegroundColor DarkGray
+        if ($platform.Family -eq "windows") {
+            Write-Host "  az        : winget install Microsoft.AzureCLI" -ForegroundColor DarkGray
+        }
+        else {
+            Write-Host "  az        : sudo apt install azure-cli  (Debian/Ubuntu/Kali) or Microsoft Linux install docs" -ForegroundColor DarkGray
+        }
     }
     if ($missing.Name -contains "prowler" -or $missing.Name -contains "roadrecon") {
         Write-Host "  prowler / roadrecon : pip install prowler roadrecon" -ForegroundColor DarkGray
@@ -445,8 +546,7 @@ else {
 
 Write-Host "`nAfter installing, log in and run the review:" -ForegroundColor Cyan
 Write-Host "  az login"
-Write-Host "  .\AzureCloudReviewv1.ps1 -RunProwler"
-Write-Host "  roadrecon auth --device-code -c 04b07795-8ddb-461a-bbee-02f9e1bf7b46 -t <tenant.onmicrosoft.com>; roadrecon gather"
-Write-Host "  `$rt = (Get-Content .roadtools_auth -Raw | ConvertFrom-Json).refreshToken"
-Write-Host "  azurehound list -r `$rt -a 04b07795-8ddb-461a-bbee-02f9e1bf7b46 -t <tenant.onmicrosoft.com> -o azurehound.json"
+Write-Host "  ./AzureCloudReviewv1.ps1 -RunProwler"
+Write-Host "  pwsh ./Get-AzureHoundRefreshToken.ps1"
+Write-Host "  azurehound list -r `"<refresh-token>`" -t <tenant> -o ./tools/azurehound.json"
 Write-BloodHoundCeInstallHint

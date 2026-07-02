@@ -16,24 +16,35 @@
     Tenant domain (e.g. contoso.onmicrosoft.com) or tenant GUID. Defaults to the signed-in az account.
 
 .PARAMETER SavePath
-    File path for the refresh token (plain text, one line). Default: .\tools\azurehound.refresh
+    File path for the refresh token (plain text, one line). Default: ./tools/azurehound.refresh
 
 .EXAMPLE
     .\Get-AzureHoundRefreshToken.ps1
 
 .EXAMPLE
+    pwsh ./Get-AzureHoundRefreshToken.ps1
+
+.EXAMPLE
     $tenant = (az account show --query tenantDefaultDomain -o tsv)
-    $rt = Get-Content .\tools\azurehound.refresh -Raw
-    azurehound list -r $rt -t $tenant -o .\tools\azurehound.json
+    $rt = Get-Content ./tools/azurehound.refresh -Raw
+    azurehound list -r $rt -t $tenant -o ./tools/azurehound.json
+
+.NOTES
+    Cross-platform: PowerShell 5.1+ on Windows, PowerShell 7 (pwsh) on Linux/macOS.
+    Requires network access to login.microsoftonline.com. Optional: az CLI for default tenant.
 #>
 
 [CmdletBinding()]
 param(
     [string]$Tenant,
-    [string]$SavePath = (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "tools\azurehound.refresh")
+    [string]$SavePath
 )
 
 $ErrorActionPreference = "Stop"
+
+if (-not $SavePath) {
+    $SavePath = Join-Path (Join-Path $PSScriptRoot "tools") "azurehound.refresh"
+}
 
 $AzurePsClientId = "1950a258-227b-4e31-a9cf-717495945fc2"
 $DeviceCodeUri = "https://login.microsoftonline.com/common/oauth2/devicecode?api-version=1.0"
@@ -111,10 +122,11 @@ $dir = Split-Path -Parent $SavePath
 if ($dir -and -not (Test-Path $dir)) {
     New-Item -ItemType Directory -Path $dir -Force | Out-Null
 }
-Set-Content -Path $SavePath -Value $refreshToken -NoNewline -Encoding utf8
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($SavePath, $refreshToken, $utf8NoBom)
 Write-Host "Saved to $SavePath"
 Write-Host ""
 Write-Host "Run AzureHound separately:"
-Write-Host "  `$tenant = '$Tenant'"
-Write-Host "  `$rt = Get-Content '$SavePath' -Raw"
-Write-Host "  azurehound list -r `$rt -t `$tenant -o .\tools\azurehound.json"
+Write-Host "  tenant=$Tenant"
+Write-Host "  rt file: $SavePath"
+Write-Host "  azurehound list -r `"<refresh-token>`" -t $Tenant -o $(Join-Path (Split-Path -Parent $SavePath) 'azurehound.json')"

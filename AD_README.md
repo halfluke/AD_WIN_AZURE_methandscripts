@@ -1,6 +1,6 @@
 # Active Directory review
 
-Pentester-focused **AD-only** automation aligned to `Draft_AD_Methodology_FINAL.xlsx` (~110 in-scope checks). For DC OS hardening use [WINBUILD_README.md](WINBUILD_README.md). For Azure/Entra cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
+Pentester-focused **AD-only** automation aligned to `Draft_AD_Methodology_FINAL.xlsx` (~129 workbook rows; ~110 in-scope; ~50 automated script checks). For DC OS hardening use [WINBUILD_README.md](WINBUILD_README.md). For Azure/Entra cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
 
 | Item | Value |
 |------|--------|
@@ -10,6 +10,8 @@ Pentester-focused **AD-only** automation aligned to `Draft_AD_Methodology_FINAL.
 | Workbook | `Draft_AD_Methodology_FINAL.xlsx` |
 
 **Scope:** AD objects, domain/forest policy, trusts, delegation, ADCS posture (mostly MANUAL), optional hybrid Entra signals. **Not** Windows Server CIS baselines, SMB, patching, or Azure resources.
+
+**Platform:** **Windows only** (RSAT `ActiveDirectory` module). Targets an **AD DS domain** wherever DCs run — on-prem **or** on Azure VMs — via domain-joined host or `-Domain` / `-Server` from a jump with LDAP reachability.
 
 ---
 
@@ -65,7 +67,7 @@ Some checks (LDAP signing, Kerberos encryption types) auto-run only **on a DC**;
 
 ## Hybrid Entra (`-IncludeEntra`)
 
-Optional; only for hybrid/cloud identity checks, not on-prem-only domains. Install Graph with `-InstallGraphModule`, then sign in **to your Entra tenant**. Microsoft accounts (e.g. `@live.com`) and guest (`#EXT#`) identities usually need **`-TenantId`**:
+Optional; only for hybrid/cloud identity checks, not on-prem-only domains. Install Graph with `-InstallGraphModule`, then sign in **to your Entra tenant**. Microsoft accounts (e.g. `@live.com`) and guest (`#EXT#`) identities usually need **`Connect-MgGraph -TenantId`** (Graph cmdlet — not the same as script **`-EntraTenantId`**):
 
 ```powershell
 .\Install-ADReviewTools.ps1 -InstallGraphModule
@@ -116,9 +118,11 @@ Without `-Run*` flags, the script **detects** tools and emits **MANUAL** guidanc
 8. Certificate Settings (ADCS - mostly MANUAL in v1)  
 9. Maintenance  
 
-**v1 limitations:** Many rows stay `REVIEW` or `MANUAL` (ADCS, GPO ACLs, full Entra hybrid). Use PingCastle / Purple Knight and the workbook **Commands/Guidance** column for full methodology coverage.
+**v1 limitations:** Many rows stay `REVIEW` or `MANUAL` (ADCS, GPO ACLs, full Entra hybrid). Use PingCastle / Purple Knight and the workbook **Commands/Guidance** column for full methodology coverage. Triage automated output against the workbook by **Title → column F** (see [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks)).
 
 The workbook uses the shared **13-column** methodology header row (same as Azure/WinBuild): Type, Scope, Executor, Executed, Comments, Title, Description, Tooling, Commands/Guidance, Mitre Technique, Policy, Written Issues, Notes.
+
+**Workbook vs runner:** the `.xlsx` lists every control; `ADReviewv1.ps1` automates a subset and flags others as `MANUAL` / `REVIEW`. Triage CSV output by matching **Title** to workbook **column F** (titles often differ — e.g. script `Duplicate SPNs` → workbook `Check for Duplicated SPNS`). See [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks).
 
 ---
 

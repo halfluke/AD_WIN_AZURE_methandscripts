@@ -1,6 +1,6 @@
 # Azure cloud review
 
-Pentester-focused **Entra ID + Azure resource** automation aligned to `Draft_Methodology_Azure_FINAL.xlsx` (~89 checks, 35 sections). For on-prem AD use [AD_README.md](AD_README.md). For Windows OS hardening use [WINBUILD_README.md](WINBUILD_README.md). Pack overview: [README.md](README.md).
+Pentester-focused **Entra ID + Azure resource** automation aligned to `Draft_Methodology_Azure_FINAL.xlsx` (~91 workbook rows, 35 sections; ~57 script checks). For AD DS domains (including Azure-hosted DCs) use [AD_README.md](AD_README.md). For Windows OS hardening use [WINBUILD_README.md](WINBUILD_README.md). Pack overview: [README.md](README.md).
 
 | Item | Value |
 |------|--------|
@@ -8,18 +8,20 @@ Pentester-focused **Entra ID + Azure resource** automation aligned to `Draft_Met
 | Shared | `AzureCloudReview.Common.ps1` |
 | Installer | `Install-AzureReviewTools.ps1` |
 | Lab | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` (**v1.0.2** destroy) |
-| AzureHound auth | `Get-AzureHoundRefreshToken.ps1` → `tools\azurehound.refresh` |
+| AzureHound auth | `Get-AzureHoundRefreshToken.ps1` → `./tools/azurehound.refresh` |
 | Workbook | `Draft_Methodology_Azure_FINAL.xlsx` |
 
 **Scope:** Entra ID, Azure resources, RBAC, CIS-aligned misconfigs, identity attack-path hints. Read-only via **Azure CLI** and Graph REST. Does **not** require Python for the core review script.
 
 Methodology workbook: shared **13-column** header row (see [README.md](README.md#repository-layout)); generic **`Policy`** column is intentionally empty.
 
+**Workbook vs runner:** the workbook has granular CIS rows per section; the script often emits **one bundled triage row per section** (e.g. §34 Virtual Machines: one CSV line covering several workbook controls). Optional `-RunProwler` adds CIS L1 depth. Triage by **Title → column F** — not row index. See [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks).
+
 ---
 
 ## Requirements
 
-- PowerShell **5.1+** or **7 (`pwsh`)** on Linux
+- PowerShell **5.1+** (Windows) or **7+ (`pwsh`)** on Linux/macOS — see [Linux / Kali](#linux--kali) for install
 - **Azure CLI** (`az login`); Reader+ on in-scope subscriptions
 - Optional Python **3.10–3.12** for Prowler; **3.10+** for ROADrecon
 
@@ -33,6 +35,8 @@ Methodology workbook: shared **13-column** header row (see [README.md](README.md
 
 ## Quick start
 
+**Windows:**
+
 ```powershell
 cd C:\path\to\AD_WIN_AZURE_methandscripts
 .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
@@ -40,6 +44,8 @@ az login
 .\AzureCloudReviewv1.ps1
 .\AzureCloudReviewv1.ps1 -SubscriptionId "<guid>" -RunProwler
 ```
+
+**Linux / Kali:** install `pwsh` first, then see [Linux / Kali](#linux--kali) for full commands (`pwsh ./Install-AzureReviewTools.ps1`, `pwsh ./AzureCloudReviewv1.ps1`, AzureHound via `./tools/azurehound`).
 
 **Minimum (no Python):**
 
@@ -97,21 +103,24 @@ prowler azure --az-cli-auth --subscription-ids <id> --compliance cis_5.0_azure \
 ## Tool installer (`Install-AzureReviewTools.ps1`)
 
 ```powershell
-.\Install-AzureReviewTools.ps1                    # check only
+.\Install-AzureReviewTools.ps1                    # check only (Windows)
+pwsh ./Install-AzureReviewTools.ps1               # check only (Linux/macOS)
 .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
 ```
 
 | Switch | Action |
 |--------|--------|
-| `-InstallAzCli` | Azure CLI via winget |
+| `-InstallAzCli` | **Windows:** Azure CLI via winget · **Linux:** `apt` package or Microsoft `InstallAzureCLIDeb` script (may need `sudo`) |
 | `-InstallPythonTools` | `pip install prowler roadrecon` (skips if already installed unless `-Upgrade`) |
-| `-InstallAzureHound` | Download `azurehound.exe` to `.\tools` |
+| `-InstallAzureHound` | Download AzureHound into `./tools` (Windows `.exe` or Linux/macOS binary matched to CPU arch) |
 | `-InstallAll` | All three |
-| `-AddToolsToUserPath` | Append `.\tools` + Python Scripts to user PATH |
+| `-AddToolsToUserPath` | Append `./tools` + Python scripts dir (`Scripts` on Windows, often `~/.local/bin` on Linux) to user PATH |
 
-Shared download folder: **`.\tools`** (AzureHound, `azurehound.refresh`, `azurehound.json`).
+Shared download folder: **`./tools`** (AzureHound, `azurehound.refresh`, `azurehound.json`).
 
-AzureHound auth helper: **`Get-AzureHoundRefreshToken.ps1`** (device code → `tools\azurehound.refresh`). Collection is a **separate** `azurehound list` step — see [AzureHound (attack paths)](#azurehound-attack-paths).
+AzureHound auth helper: **`Get-AzureHoundRefreshToken.ps1`** (device code → `./tools/azurehound.refresh`). Collection is a **separate** `azurehound list` step — see [AzureHound (attack paths)](#azurehound-attack-paths). **Do not** reuse ROADrecon’s `.roadtools_auth` token for AzureHound.
+
+**Platforms:** Windows PowerShell **5.1+** or **PowerShell 7+** (`pwsh`) on Windows, Linux, and macOS. On Linux/macOS use **`pwsh ./Install-AzureReviewTools.ps1`** (see [Linux / Kali](#linux--kali)).
 
 ---
 
@@ -231,11 +240,12 @@ ROADrecon does **not** replace subscription CIS checks (storage, KV, NSG, etc.) 
 
 Keep **token acquisition** and **AzureHound collection** as separate steps (same pattern as ROADrecon: `auth` then `gather`).
 
-**Step 1 — acquire refresh token** (`Get-AzureHoundRefreshToken.ps1` writes `.\tools\azurehound.refresh`):
+**Step 1 — acquire refresh token** (`Get-AzureHoundRefreshToken.ps1` writes `./tools/azurehound.refresh`; on Linux use `pwsh ./Get-AzureHoundRefreshToken.ps1`):
 
 ```powershell
-cd C:\path\to\AD_WIN_AZURE_methandscripts
-.\Get-AzureHoundRefreshToken.ps1
+cd C:\path\to\AD_WIN_AZURE_methandscripts   # or /path/to/... on Linux
+.\Get-AzureHoundRefreshToken.ps1              # Windows
+# pwsh ./Get-AzureHoundRefreshToken.ps1     # Linux / macOS
 ```
 
 Sign in at https://microsoft.com/devicelogin when prompted.
@@ -244,15 +254,23 @@ Sign in at https://microsoft.com/devicelogin when prompted.
 
 ```powershell
 $tenant = (az account show --query tenantDefaultDomain -o tsv)
-$rt = Get-Content .\tools\azurehound.refresh -Raw
-azurehound list -r $rt -t $tenant -o .\tools\azurehound.json
+$rt = Get-Content ./tools/azurehound.refresh -Raw
+azurehound list -r $rt -t $tenant -o ./tools/azurehound.json
+```
+
+On **Linux**, if `azurehound` is not in PATH, use `./tools/azurehound` (installer sets executable bit). Bash equivalent:
+
+```bash
+tenant=$(az account show --query tenantDefaultDomain -o tsv)
+rt=$(cat ./tools/azurehound.refresh)
+./tools/azurehound list -r "$rt" -t "$tenant" -o ./tools/azurehound.json
 ```
 
 Optional — limit to one subscription:
 
 ```powershell
 $sub = (az account show --query id -o tsv)
-azurehound list -r $rt -t $tenant -b $sub -o .\tools\azurehound.json
+azurehound list -r $rt -t $tenant -b $sub -o ./tools/azurehound.json
 ```
 
 Ingest **`azurehound.json`** in **BloodHound CE** — Docker must use **Linux containers** ([README.md](README.md#bloodhound-ce-ad-and-azure-collectors)). Pathfinding steps below.
@@ -261,7 +279,7 @@ Ingest **`azurehound.json`** in **BloodHound CE** — Docker must use **Linux co
 
 After ingest, use the graph to find **privilege-escalation chains** (who can reach Global Administrator, subscription Owner, User Access Administrator, etc.). ROADrecon covers Entra inventory and policies; BloodHound maps **permission edges** between identities and high-value targets.
 
-1. Open **http://localhost:8080/ui/login** → **Administration** → **File Ingest** → upload `tools\azurehound.json`.
+1. Open **http://localhost:8080/ui/login** → **Administration** → **File Ingest** → upload `./tools/azurehound.json`.
 2. Confirm Azure node counts (service principals, roles, subscriptions) are non-zero.
 
 **Prebuilt queries (fastest)**
@@ -429,13 +447,70 @@ Destroy deletes the **entire resource group** (core + extended lab), purges soft
 | 2 | `Deploy-AzureReviewLab.ps1` | Storage, NSG, KV, SQL, App Service; `-IncludeVm`; `-IncludeExtendedLab` |
 | 3 | Full engagement | AKS, Cosmos, etc.; Prowler as CIS baseline |
 
-**Linux / Kali:** Run review with `pwsh` + `az`. `Install-AzureReviewTools.ps1` is Windows-only; install Prowler/ROADrecon via pip and AzureHound from [GitHub releases](https://github.com/SpecterOps/AzureHound/releases) manually.
+---
+
+## Linux / Kali
+
+Use **PowerShell 7+** (`pwsh`) for the review scripts and installers. Core review: **`AzureCloudReviewv1.ps1`** + **`az login`**. AD and WinBuild tracks remain Windows-only.
+
+### Install PowerShell 7 (`pwsh`)
+
+**Kali / Debian / Ubuntu** (if `powershell` is in your repos):
+
+```bash
+sudo apt update
+sudo apt install -y powershell
+pwsh --version
+```
+
+If the package is missing, use the [Microsoft PowerShell install guide for Linux](https://learn.microsoft.com/powershell/scripting/install/install-debian) (Debian/Ubuntu `.deb` repo, or direct `.tar.gz`).
+
+### Install review tools
+
+From the repo root:
+
+```bash
+cd /path/to/AD_WIN_AZURE_methandscripts
+pwsh ./Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
+```
+
+This checks or installs **`az`** (via `apt` or Microsoft script — may prompt for `sudo`), **`prowler`** / **`roadrecon`** (pip), and **`./tools/azurehound`** (Linux amd64/arm64 zip from GitHub). Re-open the shell or `export PATH="$PATH:$HOME/.local/bin:./tools"` if commands are not found.
+
+Alternative: `sudo apt install azure-cli azurehound` on Kali when packages are available; ROADrecon/Prowler still via pip.
+
+### Run the cloud review
+
+```bash
+az login
+pwsh ./AzureCloudReviewv1.ps1
+pwsh ./AzureCloudReviewv1.ps1 -SubscriptionId "<guid>" -RunProwler
+```
+
+Lab deploy/destroy: `pwsh ./Deploy-AzureReviewLab.ps1` · `pwsh ./Destroy-AzureReviewLab.ps1 -Force`
+
+### AzureHound on Linux (section 35)
+
+Auth and collection stay **two separate steps** — same OAuth client rules as Windows ([AzureHound (attack paths)](#azurehound-attack-paths)).
+
+```bash
+az login
+pwsh ./Get-AzureHoundRefreshToken.ps1
+# Complete device code at https://microsoft.com/devicelogin
+
+tenant=$(az account show --query tenantDefaultDomain -o tsv)
+rt=$(cat ./tools/azurehound.refresh)
+./tools/azurehound list -r "$rt" -t "$tenant" -o ./tools/azurehound.json
+```
+
+Optional single subscription: add `-b "$(az account show --query id -o tsv)"` before `-o`.
+
+Ingest `./tools/azurehound.json` in **BloodHound CE** (Docker with Linux containers). ROADrecon: `roadrecon auth --device-code -c 04b07795-8ddb-461a-bbee-02f9e1bf7b46 -t <tenant>` then `roadrecon gather` — separate auth from AzureHound.
 
 ---
 
 ## v1 limitations
 
-Many checks are heuristic `REVIEW`; legacy `az ad` MFA signals may be incomplete; Front Door / ML / Synapse rows are inventory-heavy. Use Prowler CIS L1 as the authoritative CSPM baseline when in scope.
+Many checks are heuristic `REVIEW`; legacy `az ad` MFA signals may be incomplete; Front Door / ML / Synapse rows are inventory-heavy. Section bundles do not replace every granular workbook row — complete **MANUAL** items and use **Prowler CIS L1** as the authoritative CSPM baseline when in scope.
 
 ---
 
