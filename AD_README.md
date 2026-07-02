@@ -132,15 +132,16 @@ The workbook uses the shared **13-column** methodology header row (same as Azure
 .\Install-ADReviewTools.ps1                    # check only
 .\Install-ADReviewTools.ps1 -InstallAll -AddToolsToUserPath
 .\Install-ADReviewTools.ps1 -InstallGraphModule   # hybrid Entra (-IncludeEntra)
+.\Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade
 ```
 
 | Switch | Action |
 |--------|--------|
 | `-InstallSharpHound` | Download SharpHound.exe to `.\tools` |
 | `-InstallPingCastle` | Download PingCastle.exe to `.\tools` |
-| `-InstallGraphModule` | `Install-Module Microsoft.Graph` (CurrentUser) |
+| `-InstallGraphModule` | `Install-Module Microsoft.Graph` (CurrentUser); add `-Upgrade` to update when PSGallery has a newer version (skips if already at latest; close other PowerShell sessions if modules are in use) |
 | `-InstallAll` | SharpHound + PingCastle (add `-InstallGraphModule` for hybrid Entra) |
-| `-Upgrade` | Download SharpHound/PingCastle when missing, tag unknown, or newer release available; skips if already at latest |
+| `-Upgrade` | SharpHound/PingCastle when missing, tag unknown, or newer GitHub release; with `-InstallGraphModule`, update Graph from PSGallery when newer (skips if at latest) |
 | `-AddToolsToUserPath` | Append `.\tools` to user PATH |
 
 Purple Knight: install manually from [Semperis](https://www.semperis.com/purple-knight/).

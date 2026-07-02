@@ -15,6 +15,7 @@
 
 .PARAMETER InstallGraphModule
     Install Microsoft.Graph module (CurrentUser) for Connect-MgGraph / Invoke-MgGraphRequest.
+    Combine with -Upgrade to update when a newer version is on PSGallery (skips if already at latest).
 
 .PARAMETER InstallSharpHound
     Download SharpHound.exe into .\tools
@@ -26,9 +27,9 @@
     Equivalent to -InstallSharpHound -InstallPingCastle (not Microsoft.Graph; use -InstallGraphModule for hybrid Entra)
 
 .PARAMETER Upgrade
-    Download SharpHound and/or PingCastle when missing, tag is unknown, or a newer GitHub release is available.
-    Skips re-download when already at latest. Use with -InstallSharpHound / -InstallPingCastle (or -InstallAll).
-    Without -Upgrade, existing binaries are kept when present.
+    With -InstallSharpHound / -InstallPingCastle (or -InstallAll): download when missing, tag unknown, or a newer GitHub release is available (skips if already at latest).
+    With -InstallGraphModule: update Microsoft.Graph from PSGallery when a newer version exists (skips if already at latest).
+    Without -Upgrade, existing SharpHound/PingCastle binaries and an installed Graph module are kept when present.
 
 .PARAMETER AddToolsToUserPath
     Append .\tools to the user PATH permanently.
@@ -44,6 +45,9 @@
 
 .EXAMPLE
     .\Install-ADReviewTools.ps1 -InstallAll -Upgrade
+
+.EXAMPLE
+    .\Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade
 
 .NOTES
     BloodHound CE GUI: Docker Desktop + bloodhound-cli — https://bloodhound.specterops.io/get-started/quickstart/community-edition-quickstart
@@ -286,18 +290,165 @@ function Test-GraphModuleReady {
     return ($connect -and $request)
 }
 
-function Install-MicrosoftGraphModule {
-    if (Test-GraphModuleReady) {
-        Write-Step "Microsoft.Graph already available (Connect-MgGraph, Invoke-MgGraphRequest)"
-        return
+function Get-GraphModuleInstalledVersion {
+    $best = $null
+
+    $listed = Get-Module Microsoft.Graph -ListAvailable -ErrorAction SilentlyContinue |
+        Sort-Object Version -Descending
+    foreach ($mod in $listed) {
+        if ($mod) {
+            $ver = [version]$mod.Version
+            if (-not $best -or $ver -gt $best) { $best = $ver }
+        }
     }
+
+    if (-not $best -and (Get-Command Get-InstalledModule -ErrorAction SilentlyContinue)) {
+        try {
+            $mod = Get-InstalledModule Microsoft.Graph -ErrorAction Stop
+            if ($mod) { $best = [version]$mod.Version }
+        }
+        catch { }
+    }
+
+    if (-not $best) {
+        $cmd = Get-Command Connect-MgGraph -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cmd -and $cmd.Module -and $cmd.Module.Version) {
+            $best = [version]$cmd.Module.Version
+        }
+    }
+
+    return $best
+}
+
+function Get-GraphModuleVersionReport {
+    $installed = Get-GraphModuleInstalledVersion
+
+    $latest = $null
+    try {
+        if (Get-Command Find-Module -ErrorAction SilentlyContinue) {
+            $found = Find-Module Microsoft.Graph -Repository PSGallery -ErrorAction Stop | Select-Object -First 1
+            if ($found) { $latest = [version]$found.Version }
+        }
+    }
+    catch { }
+
+    $ready = Test-GraphModuleReady
+    $needsUpgrade = $false
+    if ($latest) {
+        if (-not $installed) {
+            $needsUpgrade = -not $ready
+        }
+        elseif ($installed -lt $latest) {
+            $needsUpgrade = $true
+        }
+    }
+
+    return [PSCustomObject]@{
+        InstalledVersion = $installed
+        LatestVersion    = $latest
+        NeedsUpgrade     = $needsUpgrade
+        Ready            = $ready
+    }
+}
+
+function Invoke-GraphModuleUpgrade {
+    param(
+        [Parameter(Mandatory)][version]$FromVersion,
+        [Parameter(Mandatory)][version]$ToVersion
+    )
+
+    Write-Step "Upgrading Microsoft.Graph $FromVersion -> $ToVersion (CurrentUser)"
+    try {
+        Update-Module Microsoft.Graph -Scope CurrentUser -Force -ErrorAction Stop
+    }
+    catch {
+        $msg = $_.Exception.Message
+        if ($msg -match 'currently in use|in use\. Retry') {
+            Write-WarnStep "Microsoft.Graph is loaded in this or another PowerShell window. Close those sessions, then re-run: .\Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade"
+            return
+        }
+        Write-WarnStep "Update-Module failed ($msg); trying Install-Module -Force"
+        try {
+            Install-Module Microsoft.Graph -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+        }
+        catch {
+            if ($_.Exception.Message -match 'currently in use|in use\. Retry') {
+                Write-WarnStep "Microsoft.Graph is in use. Close other PowerShell sessions and retry -InstallGraphModule -Upgrade."
+                return
+            }
+            throw
+        }
+    }
+}
+
+function Install-MicrosoftGraphModule {
+    param([switch]$ForceUpgrade)
 
     if (-not (Get-Command Install-Module -ErrorAction SilentlyContinue)) {
         throw "Install-Module not available. Run PowerShell 5.1+ with PowerShellGet, or install the module manually."
     }
 
-    Write-Step "Installing Microsoft.Graph (CurrentUser) for ADReview -IncludeEntra"
-    Install-Module Microsoft.Graph -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    $report = Get-GraphModuleVersionReport
+
+    if ($report.Ready -and -not $ForceUpgrade) {
+        if ($report.NeedsUpgrade -and $report.InstalledVersion -and $report.LatestVersion) {
+            Write-WarnStep "Microsoft.Graph $($report.InstalledVersion) is ready; $($report.LatestVersion) is on PSGallery - re-run with -InstallGraphModule -Upgrade"
+        }
+        elseif ($report.InstalledVersion) {
+            Write-Step "Microsoft.Graph already available ($($report.InstalledVersion))"
+        }
+        else {
+            Write-Step "Microsoft.Graph already available (Connect-MgGraph ready)"
+        }
+        return
+    }
+
+    if ($ForceUpgrade) {
+        if ($report.InstalledVersion -and $report.LatestVersion -and -not $report.NeedsUpgrade) {
+            Write-Step "Microsoft.Graph already at latest ($($report.InstalledVersion))"
+            return
+        }
+        if ($report.Ready -and -not $report.InstalledVersion) {
+            Write-WarnStep "Microsoft.Graph cmdlets are loaded but the installed version could not be read; skipping reinstall."
+            return
+        }
+        if (-not $report.LatestVersion) {
+            if ($report.InstalledVersion) {
+                Write-WarnStep "Could not reach PSGallery; Microsoft.Graph $($report.InstalledVersion) left unchanged."
+            }
+            else {
+                Write-WarnStep "Could not reach PSGallery to install Microsoft.Graph."
+            }
+            return
+        }
+        if ($report.InstalledVersion -and $report.NeedsUpgrade) {
+            Invoke-GraphModuleUpgrade -FromVersion $report.InstalledVersion -ToVersion $report.LatestVersion
+            return
+        }
+    }
+
+    if ($report.Ready) {
+        if ($report.InstalledVersion) {
+            Write-Step "Microsoft.Graph already available ($($report.InstalledVersion))"
+        }
+        else {
+            Write-Step "Microsoft.Graph already available (Connect-MgGraph ready)"
+        }
+        return
+    }
+
+    $verHint = if ($report.LatestVersion) { " (PSGallery latest: $($report.LatestVersion))" } else { '' }
+    Write-Step "Installing Microsoft.Graph (CurrentUser) for ADReview -IncludeEntra$verHint"
+    try {
+        Install-Module Microsoft.Graph -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception.Message -match 'currently in use|in use\. Retry') {
+            Write-WarnStep "Microsoft.Graph is in use. Close other PowerShell sessions and retry -InstallGraphModule."
+            return
+        }
+        throw
+    }
 }
 
 Write-Host "`nAD Review Tools - install / verify" -ForegroundColor Green
@@ -306,7 +457,7 @@ Write-Host "Tools directory: $toolsDir`n"
 if (-not $CheckOnly) {
     if ($InstallSharpHound) { Install-SharpHoundBinary -ForceUpgrade:$Upgrade }
     if ($InstallPingCastle) { Install-PingCastleBinary -ForceUpgrade:$Upgrade }
-    if ($InstallGraphModule) { Install-MicrosoftGraphModule }
+    if ($InstallGraphModule) { Install-MicrosoftGraphModule -ForceUpgrade:$Upgrade }
     if ($AddToolsToUserPath) { Add-DirectoryToUserPath -Directory $toolsDir }
 }
 
@@ -359,10 +510,23 @@ $pkStatus = if ($pkCmdlet) { "OK" } else { "MISSING" }
 $pkColor = if ($pkCmdlet) { "Green" } else { "Yellow" }
 Write-Host ("{0,-18} {1,-8} {2}" -f "Purple Knight", $pkStatus, $(if ($pkCmdlet) { $pkCmdlet.Source } else { "Manual install from Semperis" })) -ForegroundColor $pkColor
 
-$graphReady = Test-GraphModuleReady
-$graphStatus = if ($graphReady) { "OK" } else { "MISSING" }
-$graphColor = if ($graphReady) { "Green" } else { "Yellow" }
-Write-Host ("{0,-18} {1,-8} {2}" -f "Microsoft.Graph", $graphStatus, $(if ($graphReady) { "Connect-MgGraph ready" } else { "Optional: -IncludeEntra hybrid checks" })) -ForegroundColor $graphColor
+$graphReport = Get-GraphModuleVersionReport
+if (-not $graphReport.Ready) {
+    $graphStatus = "MISSING"
+    $graphColor = "Yellow"
+    $graphDetail = "Optional: -IncludeEntra hybrid checks"
+}
+elseif ($graphReport.NeedsUpgrade) {
+    $graphStatus = "UPDATE"
+    $graphColor = "Yellow"
+    $graphDetail = "installed $($graphReport.InstalledVersion) -> latest $($graphReport.LatestVersion)"
+}
+else {
+    $graphStatus = "OK"
+    $graphColor = "Green"
+    $graphDetail = if ($graphReport.InstalledVersion) { "version $($graphReport.InstalledVersion)" } else { "Connect-MgGraph ready" }
+}
+Write-Host ("{0,-18} {1,-8} {2}" -f "Microsoft.Graph", $graphStatus, $graphDetail) -ForegroundColor $graphColor
 
 Write-Host ""
 if (-not (Test-ToolCommand "SharpHound.exe" -ExtraPaths $extraPaths).Found -or
@@ -379,16 +543,23 @@ else {
         Write-Host "Update available:" -ForegroundColor Yellow
         Write-Host "  .\Install-ADReviewTools.ps1 -InstallAll -Upgrade`n" -ForegroundColor White
     }
+    elseif ($graphReport.NeedsUpgrade) {
+        Write-Host "Update available:" -ForegroundColor Yellow
+        Write-Host "  .\Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade`n" -ForegroundColor White
+    }
 }
 
 if (-not $pkCmdlet) {
     Write-Host "Purple Knight: install from https://www.semperis.com/purple-knight/ (not redistributable via this script).`n" -ForegroundColor DarkGray
 }
 
-if (-not $graphReady) {
+if (-not $graphReport.Ready) {
     Write-Host "Hybrid Entra (-IncludeEntra): .\Install-ADReviewTools.ps1 -InstallGraphModule" -ForegroundColor DarkGray
     Write-Host "  Then: Connect-MgGraph -TenantId <tenant.onmicrosoft.com> -Scopes Policy.Read.All,User.Read.All,RoleManagement.Read.Directory" -ForegroundColor DarkGray
     Write-Host "       Sign in as your normal account (not #EXT# UPN). Add -UseDeviceCode on Server.`n" -ForegroundColor DarkGray
+}
+elseif ($graphReport.NeedsUpgrade) {
+    Write-Host "Microsoft.Graph update: .\Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade`n" -ForegroundColor DarkGray
 }
 
 Write-BloodHoundCeInstallHint
