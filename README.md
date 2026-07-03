@@ -57,7 +57,7 @@ Pentester-focused assessment pack with **three separate tracks**. Each track has
 
 Without `-Run*`, AD and Azure scripts **detect** tools and emit **MANUAL** guidance. WinBuild emits **MANUAL** for winPEAS unless `-RunWinPeas`. Use `-SkipExternalTools` (AD/WinBuild) or `-SkipIdentityTools` (Azure) to skip those rows.
 
-**Tool upgrades:** `-Upgrade` on each track installer skips re-download when the release tag already matches GitHub latest — **winPEAS** (`Install-WinBuildReviewTools.ps1 -Upgrade`; first install `-InstallAll`); **SharpHound/PingCastle** (`Install-ADReviewTools.ps1 -InstallAll -Upgrade`); **Microsoft Graph** (`Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade`); **Azure** pip via `-InstallPythonTools -Upgrade`, **AzureHound** via `-InstallAzureHound -Upgrade` (release tag in `.\tools\azurehound.release`).
+**Tool upgrades:** `-Upgrade` on each track installer skips re-download when already at the latest version — **winPEAS** (`Install-WinBuildReviewTools.ps1 -Upgrade`; first install `-InstallAll`); **SharpHound/PingCastle** (`Install-ADReviewTools.ps1 -InstallAll -Upgrade`); **Microsoft Graph** (`Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade`); **Azure** pip via `-InstallPythonTools -Upgrade`, **AzureHound** via `-InstallAzureHound -Upgrade` (release tag in `.\tools\azurehound.release`), **Azure CLI** via `-InstallAzCli -Upgrade` (compares installed vs. latest PyPI `azure-cli` version; `winget upgrade` / `apt --only-upgrade` / Microsoft install script depending on platform).
 
 Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZURE_README.md — installer & identity tools](AZURE_README.md#identity-tools-manual--methodology-section-35)
 

@@ -14,7 +14,9 @@
     Run without switches to report status only. Use -InstallAll for a typical lab setup.
 
 .PARAMETER InstallAzCli
-    Install Microsoft Azure CLI using winget when az is missing.
+    Install Microsoft Azure CLI using winget when az is missing. When az is already installed,
+    compares the installed version against the latest release on PyPI and warns if outdated
+    (pass -Upgrade to actually upgrade it).
 
 .PARAMETER InstallPythonTools
     pip install prowler and roadrecon (and ensure pip is available).
@@ -27,7 +29,9 @@
 
 .PARAMETER Upgrade
     Pass --upgrade to pip when installing Python packages. With -InstallAzureHound (or -InstallAll),
-    download AzureHound when missing, tag is unknown, or a newer release is available; skips if already at latest.
+    download AzureHound when missing, tag is unknown, or a newer release is available; skips if already
+    at latest. With -InstallAzCli (or -InstallAll), upgrade Azure CLI (winget upgrade / apt --only-upgrade
+    / Microsoft install script) when a newer version is available on PyPI; skips if already at latest.
 
 .PARAMETER AddToolsToUserPath
     Append ./tools and the current Python scripts directory to the user PATH permanently.
@@ -46,6 +50,9 @@
 
 .EXAMPLE
     .\Install-AzureReviewTools.ps1 -InstallAzureHound -Upgrade
+
+.EXAMPLE
+    .\Install-AzureReviewTools.ps1 -InstallAzCli -Upgrade
 
 .NOTES
     Requires an internet connection for downloads. Azure CLI install on Linux may require sudo.
@@ -316,16 +323,79 @@ function Install-PythonReviewTools {
     Invoke-PipInstall -PythonCommand $PythonCommand -Packages $toInstall -UpgradePackages:$UpgradePackages -Quiet:(-not $UpgradePackages)
 }
 
+function Get-InstalledAzCliVersion {
+    try {
+        $json = & az version --output json 2>$null | ConvertFrom-Json
+        if ($json.'azure-cli') { return $json.'azure-cli' }
+    }
+    catch { }
+    return $null
+}
+
+function Get-LatestAzCliVersion {
+    # Microsoft publishes az CLI to PyPI in lockstep with winget/apt/MSI releases - this avoids
+    # GitHub API rate limits and works identically cross-platform (no winget/apt-cache parsing).
+    $info = Invoke-RestMethod -Uri "https://pypi.org/pypi/azure-cli/json" -Headers @{
+        "User-Agent" = "Install-AzureReviewTools.ps1"
+    }
+    return $info.info.version
+}
+
+function Compare-AzCliVersion {
+    param([string]$Installed, [string]$Latest)
+    if (-not $Installed -or -not $Latest) { return $false }
+    try {
+        return ([version]$Installed) -lt ([version]$Latest)
+    }
+    catch {
+        # Non-numeric segments (e.g. preview suffix) - fall back to a plain inequality check.
+        return $Installed -ne $Latest
+    }
+}
+
 function Install-AzureCli {
-    if ((Test-ToolCommand "az").Found) {
-        Write-Step "Azure CLI already available"
-        return
+    param([switch]$ForceUpgrade)
+
+    $existing = Test-ToolCommand "az"
+    if ($existing.Found) {
+        $installedVersion = Get-InstalledAzCliVersion
+        $latestVersion = $null
+        try {
+            $latestVersion = Get-LatestAzCliVersion
+        }
+        catch {
+            Write-WarnStep "Could not check latest Azure CLI version (network/PyPI issue): $($_.Exception.Message)"
+        }
+
+        $needsUpgrade = Compare-AzCliVersion -Installed $installedVersion -Latest $latestVersion
+        if (-not $needsUpgrade) {
+            $verLabel = if ($installedVersion) { "v$installedVersion" } else { "version unknown" }
+            Write-Step "Azure CLI already available ($verLabel$(if ($latestVersion -and -not $installedVersion) { ", latest is v$latestVersion" }))"
+            return
+        }
+
+        if (-not $ForceUpgrade) {
+            Write-WarnStep "Azure CLI present (v$installedVersion) but latest is v$latestVersion. Re-run with -InstallAzCli -Upgrade to update."
+            return
+        }
+        Write-Step "Upgrading Azure CLI (v$installedVersion -> v$latestVersion)"
     }
 
     if ($platform.Family -eq "windows") {
         $winget = Get-Command winget -ErrorAction SilentlyContinue
         if (-not $winget) {
-            throw "winget not found. Install Azure CLI manually: https://learn.microsoft.com/cli/azure/install-azure-cli"
+            throw "winget not found. Install/upgrade Azure CLI manually: https://learn.microsoft.com/cli/azure/install-azure-cli"
+        }
+
+        if ($existing.Found) {
+            Write-Step "Upgrading Azure CLI via winget"
+            & winget upgrade --id Microsoft.AzureCLI -e --accept-source-agreements --accept-package-agreements
+            # winget returns a non-zero "no applicable upgrade found" exit code when its own catalog
+            # hasn't caught up to the PyPI version yet - not a real failure, so don't throw on it.
+            if ($LASTEXITCODE -ne 0) {
+                Write-WarnStep "winget upgrade reported exit code $LASTEXITCODE (may already be at winget's latest packaged version)."
+            }
+            return
         }
 
         Write-Step "Installing Azure CLI via winget"
@@ -338,16 +408,29 @@ function Install-AzureCli {
         return
     }
 
-    Write-Step "Installing Azure CLI on $($platform.Family) (may require sudo)"
+    Write-Step "Installing/upgrading Azure CLI on $($platform.Family) (may require sudo)"
 
     if (Get-Command apt-get -ErrorAction SilentlyContinue) {
         Write-Step "Trying apt-get install azure-cli..."
         & sudo apt-get update
-        & sudo apt-get install -y azure-cli
-        if ($LASTEXITCODE -eq 0 -and (Test-ToolCommand "az").Found) {
-            return
+        if ($existing.Found) {
+            & sudo apt-get install --only-upgrade -y azure-cli
         }
-        Write-WarnStep "apt package 'azure-cli' unavailable or install failed; trying Microsoft package script..."
+        else {
+            & sudo apt-get install -y azure-cli
+        }
+        if ($LASTEXITCODE -eq 0 -and (Test-ToolCommand "az").Found) {
+            $newVersion = Get-InstalledAzCliVersion
+            if ($existing.Found -and $newVersion -eq $installedVersion) {
+                Write-WarnStep "apt did not report a newer azure-cli package (still v$newVersion); trying Microsoft package script for the latest release..."
+            }
+            else {
+                return
+            }
+        }
+        else {
+            Write-WarnStep "apt package 'azure-cli' unavailable or install failed; trying Microsoft package script..."
+        }
     }
 
     if ((Test-Path "/etc/debian_version") -and (Get-Command curl -ErrorAction SilentlyContinue)) {
@@ -358,6 +441,9 @@ function Install-AzureCli {
         }
     }
 
+    if ($existing.Found) {
+        throw "Could not upgrade Azure CLI automatically on $($platform.Family). See https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
+    }
     throw "Could not install Azure CLI automatically on $($platform.Family). See https://learn.microsoft.com/cli/azure/install-azure-cli-linux"
 }
 
@@ -497,8 +583,8 @@ function Get-ToolVersion {
     try {
         switch ($Name) {
             "az" {
-                $json = & az version --output json 2>$null | ConvertFrom-Json
-                return "azure-cli $($json.'azure-cli')"
+                $v = Get-InstalledAzCliVersion
+                if ($v) { return "azure-cli $v" }
             }
             "prowler" {
                 $out = & prowler -v 2>&1 | Out-String
@@ -539,12 +625,20 @@ catch {
 }
 $installedAzureHoundTag = Get-InstalledAzureHoundReleaseTag
 
+$latestAzCliVersion = $null
+try {
+    $latestAzCliVersion = Get-LatestAzCliVersion
+}
+catch {
+    Write-WarnStep "Could not query latest Azure CLI version from PyPI: $($_.Exception.Message)"
+}
+
 Write-Host "`nAzure Review Tools - install / verify ($($platform.Family)/$($platform.Arch))" -ForegroundColor Green
 Write-Host "Script directory: $scriptDir`n"
 
 if (-not $CheckOnly) {
     if ($InstallAzCli) {
-        Install-AzureCli
+        Install-AzureCli -ForceUpgrade:$Upgrade
     }
 
     $pythonCmd = Get-PythonCommand
@@ -623,6 +717,17 @@ foreach ($item in $results) {
         }
     }
 
+    if ($item.Name -eq "az" -and $item.Found -and $latestAzCliVersion) {
+        $installedAzCliVersion = Get-InstalledAzCliVersion
+        if (Compare-AzCliVersion -Installed $installedAzCliVersion -Latest $latestAzCliVersion) {
+            $needsUpgrade = $true
+            $location = "azure-cli $installedAzCliVersion -> latest $latestAzCliVersion"
+        }
+        else {
+            $location = "azure-cli $installedAzCliVersion (latest)"
+        }
+    }
+
     $status = Format-Status -Found $item.Found -NeedsUpgrade:$needsUpgrade
     $color = switch ($status) {
         "OK" { "Green" }
@@ -638,8 +743,11 @@ foreach ($item in $results) {
 $missing = @($results | Where-Object { -not $_.Found })
 $azureHoundNeedsUpgrade = ($results | Where-Object { $_.Name -eq "azurehound" -and $_.Found }).Count -gt 0 -and
     $latestAzureHoundRelease -and $installedAzureHoundTag -ne $latestAzureHoundRelease.tag_name
+$azCliFound = ($results | Where-Object { $_.Name -eq "az" -and $_.Found }).Count -gt 0
+$azCliNeedsUpgrade = $azCliFound -and $latestAzCliVersion -and
+    (Compare-AzCliVersion -Installed (Get-InstalledAzCliVersion) -Latest $latestAzCliVersion)
 
-if ($missing.Count -eq 0 -and -not $azureHoundNeedsUpgrade) {
+if ($missing.Count -eq 0 -and -not $azureHoundNeedsUpgrade -and -not $azCliNeedsUpgrade) {
     Write-Host "`nAll tools are available." -ForegroundColor Green
 }
 else {
@@ -651,6 +759,10 @@ else {
     if ($azureHoundNeedsUpgrade) {
         Write-Host "AzureHound update available:" -ForegroundColor Yellow
         Write-Host "  .\Install-AzureReviewTools.ps1 -InstallAzureHound -Upgrade`n" -ForegroundColor White
+    }
+    if ($azCliNeedsUpgrade) {
+        Write-Host "Azure CLI update available:" -ForegroundColor Yellow
+        Write-Host "  .\Install-AzureReviewTools.ps1 -InstallAzCli -Upgrade`n" -ForegroundColor White
     }
 
     if ($missing.Name -contains "az") {

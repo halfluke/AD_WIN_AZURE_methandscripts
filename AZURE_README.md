@@ -115,10 +115,10 @@ pwsh ./Install-AzureReviewTools.ps1               # check only (Linux/macOS)
 
 | Switch | Action |
 |--------|--------|
-| `-InstallAzCli` | **Windows:** Azure CLI via winget · **Linux:** `apt` package or Microsoft `InstallAzureCLIDeb` script (may need `sudo`) |
+| `-InstallAzCli` | **Windows:** Azure CLI via winget · **Linux:** `apt` package or Microsoft `InstallAzureCLIDeb` script (may need `sudo`). If `az` is already installed, compares its version against the latest on PyPI and warns if outdated (no change without `-Upgrade`) |
 | `-InstallPythonTools` | `pip install prowler roadrecon` (skips if already installed unless `-Upgrade`) |
 | `-InstallAzureHound` | Download AzureHound into `./tools` (Windows `.exe` or Linux/macOS binary matched to CPU arch) |
-| `-Upgrade` | `pip --upgrade` with `-InstallPythonTools`; AzureHound update when missing, tag unknown, or newer (skips if at latest) |
+| `-Upgrade` | `pip --upgrade` with `-InstallPythonTools`; AzureHound update when missing, tag unknown, or newer (skips if at latest); Azure CLI update via `winget upgrade` / `apt --only-upgrade` / Microsoft install script when a newer version is on PyPI (skips if at latest) |
 | `-InstallAll` | All three |
 | `-AddToolsToUserPath` | Append `./tools` + Python scripts dir; sets user **`PYTHONUNBUFFERED=1`** (ROADrecon device code / cleaner Python CLI on Windows Server) |
 
