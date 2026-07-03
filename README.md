@@ -71,6 +71,7 @@ Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZUR
 | `WinBuildReview.ps1` | No | 5.1+ | Each in-scope server/DC (elevated recommended) |
 | `AzureCloudReviewv1.ps1` | No for core review | 5.1+ or 7 on Linux | Host with `az login` |
 | `Install-ADReviewTools.ps1` | No | 5.1+ | Windows with internet |
+| `Install-WinBuildReviewTools.ps1` | No | 5.1+ | Windows with internet (optional winPEAS) |
 | `Install-AzureReviewTools.ps1` | Installs pip tools | 5.1+ (Windows) or **7+ pwsh** (Linux/macOS) | Windows, Linux, or macOS with network |
 | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` | No | 5.1+ / pwsh | Same as Azure review |
 
