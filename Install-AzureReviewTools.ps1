@@ -128,7 +128,11 @@ if ($InstallAll) {
 
 $anyInstallSwitch = $InstallAzCli -or $InstallPythonTools -or $InstallAzureHound -or $AddToolsToUserPath -or $Upgrade
 if ($CheckOnly -and $anyInstallSwitch) {
-    Write-Error "-CheckOnly cannot be combined with install switches."
+    # Plain usage error, not a bug - use Write-Host/exit instead of Write-Error so this doesn't
+    # get routed through the trap below and printed as a scary "UNHANDLED ERROR" call stack.
+    Write-Host "-CheckOnly cannot be combined with install switches (-InstallAzCli, -InstallPythonTools, -InstallAzureHound, -InstallAll, -Upgrade, -AddToolsToUserPath)." -ForegroundColor Red
+    Write-Host "Run with -CheckOnly alone to report status, or drop -CheckOnly to install." -ForegroundColor Yellow
+    exit 1
 }
 if (-not $CheckOnly -and -not $anyInstallSwitch) {
     $CheckOnly = $true
@@ -222,7 +226,14 @@ function Get-PythonCommand {
     return $null
 }
 
+$script:pythonUnbufferedHandled = $false
+
 function Set-PythonCliUserEnvironment {
+    # Called from both -InstallPythonTools and -AddToolsToUserPath, which can both be active in
+    # the same run (e.g. -InstallAll -AddToolsToUserPath) - only report/act on this once per run.
+    if ($script:pythonUnbufferedHandled) { return }
+    $script:pythonUnbufferedHandled = $true
+
     $existing = [Environment]::GetEnvironmentVariable("PYTHONUNBUFFERED", "User")
     if ($existing -eq "1") {
         Write-Step "User PYTHONUNBUFFERED already set"

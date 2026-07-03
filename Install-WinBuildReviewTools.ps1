@@ -73,7 +73,11 @@ $ParserFileNames = @("peas2json.ps1", "peas2json.py", "json2html.ps1", "json2pdf
 
 $anyInstallSwitch = $InstallAll -or $Upgrade -or $AddToolsToUserPath
 if ($CheckOnly -and $anyInstallSwitch) {
-    Write-Error "-CheckOnly cannot be combined with install switches."
+    # Plain usage error, not a bug - use Write-Host/exit instead of Write-Error so this doesn't
+    # get routed through the trap below and printed as a scary "UNHANDLED ERROR" call stack.
+    Write-Host "-CheckOnly cannot be combined with install switches (-InstallAll, -Upgrade, -AddToolsToUserPath)." -ForegroundColor Red
+    Write-Host "Run with -CheckOnly alone to report status, or drop -CheckOnly to install." -ForegroundColor Yellow
+    exit 1
 }
 if (-not $CheckOnly -and -not $anyInstallSwitch) {
     $CheckOnly = $true

@@ -95,7 +95,11 @@ if ($InstallAll) {
 
 $anyInstallSwitch = $InstallSharpHound -or $InstallPingCastle -or $InstallGraphModule -or $AddToolsToUserPath -or $Upgrade
 if ($CheckOnly -and $anyInstallSwitch) {
-    Write-Error "-CheckOnly cannot be combined with install switches."
+    # Plain usage error, not a bug - use Write-Host/exit instead of Write-Error so this doesn't
+    # get routed through the trap below and printed as a scary "UNHANDLED ERROR" call stack.
+    Write-Host "-CheckOnly cannot be combined with install switches (-InstallSharpHound, -InstallPingCastle, -InstallGraphModule, -InstallAll, -Upgrade, -AddToolsToUserPath)." -ForegroundColor Red
+    Write-Host "Run with -CheckOnly alone to report status, or drop -CheckOnly to install." -ForegroundColor Yellow
+    exit 1
 }
 if (-not $CheckOnly -and -not $anyInstallSwitch) {
     $CheckOnly = $true
