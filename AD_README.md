@@ -1,10 +1,10 @@
 # Active Directory review
 
-Pentester-focused **AD-only** automation aligned to `Draft_AD_Methodology_FINAL.xlsx` (~129 workbook rows; ~110 in-scope; ~50 automated script checks). For DC OS hardening use [WINBUILD_README.md](WINBUILD_README.md). For Azure/Entra cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
+Pentester-focused **AD-only** automation aligned to `Draft_AD_Methodology_FINAL.xlsx` (~128 workbook controls; ~115 in-scope AD; 13 deferred to WinBuild in section 10; ~71 automated script checks). For DC OS hardening use [WINBUILD_README.md](WINBUILD_README.md). For Azure/Entra cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
 
 | Item | Value |
 |------|--------|
-| Script | `ADReviewv1.ps1` (**v1.0.6**) |
+| Script | `ADReviewv1.ps1` (**v1.1.0**) |
 | Shared | `ADReview.Common.ps1` |
 | Installer | `Install-ADReviewTools.ps1` |
 | Workbook | `Draft_AD_Methodology_FINAL.xlsx` |
@@ -61,7 +61,7 @@ Review script run (CSV/HTML output):
 | `-IncludeEntra` | Hybrid Entra checks via Microsoft Graph |
 | `-EntraTenantId` | Entra tenant (e.g. `contoso.onmicrosoft.com`) for `Connect-MgGraph`; use with MSA/guest accounts |
 
-Some checks (LDAP signing, Kerberos encryption types) auto-run only **on a DC**; otherwise they appear as `MANUAL`.
+Some checks (LDAP signing, Kerberos encryption types, Net Cease, null sessions, anonymous LDAP) auto-run only **on a DC**; otherwise they appear as `MANUAL`.
 
 ---
 
@@ -117,12 +117,15 @@ Without `-Run*` flags, the script **detects** tools and emits **MANUAL** guidanc
 7. Privilege Delegation  
 8. Certificate Settings (ADCS - mostly MANUAL in v1)  
 9. Maintenance  
+10. Deferred to Windows Build Review (13 controls — run `WinBuildReview.ps1` on DCs/member servers; not part of AD track scope)
+
+**Scope column:** in-scope AD controls show `In Scope`; the deferred section lists DC OS / CIS / patching checks covered by the WinBuild track.
 
 **v1 limitations:** Many rows stay `REVIEW` or `MANUAL` (ADCS, GPO ACLs, full Entra hybrid). Use PingCastle / Purple Knight and the workbook **Commands/Guidance** column for full methodology coverage. Triage automated output against the workbook by **Title → column F** (see [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks)).
 
 The workbook uses the shared **13-column** methodology header row (same as Azure/WinBuild): Type, Scope, Executor, Executed, Comments, Title, Description, Tooling, Commands/Guidance, Mitre Technique, Policy, Written Issues, Notes.
 
-**Workbook vs runner:** the `.xlsx` lists every control; `ADReviewv1.ps1` automates a subset and flags others as `MANUAL` / `REVIEW`. Triage CSV output by matching **Title** to workbook **column F** (titles often differ — e.g. script `Duplicate SPNs` → workbook `Check for Duplicated SPNS`). See [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks).
+**Workbook vs runner:** the `.xlsx` lists every control; `ADReviewv1.ps1` automates a subset and flags others as `MANUAL` / `REVIEW`. CSV `Title` strings are aligned to workbook **column F** wherever a single row maps cleanly (e.g. `Check for Duplicated SPNS`, `Weak gMSA Configuration`); a few automation-tool rows intentionally combine multiple workbook rows into one CSV title (e.g. `PurpleKnight / Pingcastle` covers both tools' single combined workbook row). See [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks).
 
 ---
 
@@ -169,14 +172,14 @@ Same definitions as the pack overview: [README.md — Check result statuses](REA
 
 ## Appendix: automation coverage by section
 
-| Methodology section | `ADReviewv1.ps1` v1 coverage |
+| Methodology section | `ADReviewv1.ps1` v1.1 coverage |
 |---------------------|------------------------------|
 | **Automation / Scanning** | Detect SharpHound, PingCastle, Purple Knight; run with `-Run*`; install via `Install-ADReviewTools.ps1` |
-| **Account Settings** | Password flags, pre-auth, SPNs, guest, lockout, domain password policy, DCSync ACLs, PGID, machine quota |
-| **Group Settings** | Domain Admins count, Protected Users, operators, Pre-Win2000, computers in privileged groups |
-| **Domain Settings** | dsHeuristics, SID history, trusts, recycle bin, functional level; **GPO ACLs = MANUAL** |
+| **Account Settings** | Password flags, pre-auth, SPNs, guest, lockout, domain password policy, DCSync ACLs, PGID, machine quota, altSecurityIdentities, computer password prohibited, logon script ACLs, DPAPI backup key ACLs, Create Computer Objects delegation, native Administrator usage |
+| **Group Settings** | Domain Admins count, Protected Users, operators, Pre-Win2000, computers in privileged groups, foreign security principals in privileged groups |
+| **Domain Settings** | dsHeuristics (anonymous LDAP, AdminSDHolder exclusions), SID history, trusts, recycle bin, functional level, weak password hashing (DES-only UAC flag), weak Kerberos encryption types, NTLM restriction policy; **on a DC:** Net Cease, null sessions, anonymous LDAP; **GPO ACLs = MANUAL** |
 | **Service Settings** | DnsAdmins, gMSA, LAPS-in-AD, LDAP/Kerberos on DC, AAD Connect sync account |
-| **Hybrid Entra ID** | Skipped unless **`-IncludeEntra`** |
-| **Privilege Delegation** | Unconstrained / constrained / RBCD delegation; **broad ACL delegations = MANUAL** |
+| **Hybrid Entra ID** | Security Defaults, Global Admin count, legacy authentication, MFA/Conditional Access posture, user consent policy, guest invite policy, non-admin app registration, on-prem privileged users synced to Entra roles - all skipped unless **`-IncludeEntra`** |
+| **Privilege Delegation** | Unconstrained / constrained / RBCD delegation, orphaned delegation target SPNs; **broad ACL delegations = MANUAL** |
 | **Certificate Settings (ADCS)** | **MANUAL** (certutil on CA, PingCastle / Purple Knight ADCS rules) |
 | **Maintenance** | Tombstone lifetime, DC count, inactive users, Schema Admins, krbtgt age; **backup = MANUAL** |

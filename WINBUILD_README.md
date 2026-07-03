@@ -1,6 +1,6 @@
 # Windows build review
 
-Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` (~67 workbook rows; ~61 script checks; CIS-oriented). For AD object review use [AD_README.md](AD_README.md). For Azure cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
+Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` (~62 workbook rows; ~61 script checks; CIS-oriented). For AD object review use [AD_README.md](AD_README.md). For Azure cloud use [AZURE_README.md](AZURE_README.md). Pack overview: [README.md](README.md).
 
 | Item | Value |
 |------|--------|
@@ -15,7 +15,7 @@ Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Bu
 
 Workbook columns match the pack-wide **13-column** schema (see [README.md](README.md#repository-layout)); CIS benchmark versions per OS are preserved in **Notes** (`[CIS Refs]: …`).
 
-**Workbook vs runner:** ~67 workbook rows vs ~61 script checks (closest alignment of the three tracks). Triage by **Title → column F**; complete remaining controls from the CIS PDF where the script emits `REVIEW` / `MANUAL`. See [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks).
+**Workbook vs runner:** ~62 workbook rows vs ~61 script checks (closest alignment of the three tracks). Triage by **Title → column F**; complete remaining controls from the CIS PDF where the script emits `REVIEW` / `MANUAL`. See [README.md — Workbook vs runner](README.md#workbook-vs-runner-all-tracks).
 
 ---
 

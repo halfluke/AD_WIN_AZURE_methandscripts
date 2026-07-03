@@ -174,8 +174,14 @@ $secEntra = "2. AZURE ENTRA ID"
 
 Invoke-Check -Section $secEntra -CheckId "entra-guest-users" `
     -Title "Microsoft Entra ID Guest Users Detected" -Severity "Medium" -Test {
-    $guests = Invoke-AzCliJson -ArgumentList @("ad", "user", "list", "--filter", "userType eq 'Guest'") -AllowFailure
-    $count = if ($guests) { @($guests).Count } else { 0 }
+    $guests = Invoke-AzCliJson -ArgumentList @("ad", "user", "list", "--filter", "userType eq 'Guest'") -AllowFailure -AllowEmpty
+    if ($null -eq $guests) {
+        Add-ReviewResult -Section $secEntra -CheckId "entra-guest-users" -Title "Microsoft Entra ID Guest Users Detected" `
+            -Status "MANUAL" -Summary "az ad user list failed (permissions/consent?) - could not determine guest count; verify manually." `
+            -Severity "Medium"
+        return
+    }
+    $count = @($guests).Count
     $status = if ($count -eq 0) { "PASS" } else { "REVIEW" }
     Add-ReviewResult -Section $secEntra -CheckId "entra-guest-users" -Title "Microsoft Entra ID Guest Users Detected" `
         -Status $status -Summary "Guest user count: $count" -Evidence $guests `
@@ -185,6 +191,12 @@ Invoke-Check -Section $secEntra -CheckId "entra-guest-users" `
 Invoke-Check -Section $secEntra -CheckId "entra-tenant-create" `
     -Title "Unrestricted Tenant Creation by Non-Admin Users" -Severity "High" -Test {
     $policy = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/policies/authorizationPolicy"
+    if (-not $policy) {
+        Add-ReviewResult -Section $secEntra -CheckId "entra-tenant-create" `
+            -Title "Unrestricted Tenant Creation by Non-Admin Users" -Status "MANUAL" `
+            -Summary "Graph API unavailable - verify 'Restrict non-admin users from creating tenants' manually." -Severity "High"
+        return
+    }
     $allowed = $policy.defaultUserRolePermissions.allowedToCreateTenants
     $status = if ($allowed -eq $false) { "PASS" } else { "FAIL" }
     Add-ReviewResult -Section $secEntra -CheckId "entra-tenant-create" `
@@ -213,8 +225,11 @@ Invoke-Check -Section $secEntra -CheckId "entra-guest-perms" `
     -Title "Guest User Permissions Not Limited" -Severity "Medium" -Test {
     $policy = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/policies/authorizationPolicy"
     $roleId = $policy.guestUserRoleId
-    # Restricted guest role GUID (limited permissions)
-    $restricted = "10dae515-f9bd-4fe7-8711-eecc663ab2e5"
+    # Restricted Guest User role template GUID (guests can't see membership of any groups) -
+    # confirmed against the authorizationPolicy resource docs. The other supported values are
+    # a0b1b346-4d3e-4e8b-98f8-753987be4970 (Same as member users) and 10dae51f-b6af-4016-8d66-8c2a99b929b3
+    # (Guest User / limited access, the default).
+    $restricted = "2af84b1e-32c8-42b7-82bc-daa82404023b"
     $status = if ($roleId -eq $restricted) { "PASS" } else { "REVIEW" }
     Add-ReviewResult -Section $secEntra -CheckId "entra-guest-perms" `
         -Title "Guest User Permissions Not Limited" -Status $status `
@@ -223,18 +238,22 @@ Invoke-Check -Section $secEntra -CheckId "entra-guest-perms" `
 
 Invoke-Check -Section $secEntra -CheckId "entra-mfa-all-users" `
     -Title "Insufficient Multi-Factor Authentication Coverage for User Accounts" -Severity "High" -Test {
-    $users = Invoke-AzCliJson -ArgumentList @("ad", "user", "list") -AllowFailure
-    if (-not $users) {
+    # NOTE: "strongAuthenticationMethods" is a legacy Azure AD Graph/MSOnline property that does
+    # not exist on the Microsoft-Graph-backed "az ad user" object model, so it was always $null
+    # and this check always FAILed. Use the actual authentication-methods usage report instead
+    # (requires AuditLog.Read.All/Reports.Read.All consent, typically also Entra ID P1/P2).
+    $report = Invoke-GraphGet -Uri 'https://graph.microsoft.com/v1.0/reports/authenticationMethods/userRegistrationDetails?$filter=isMfaRegistered%20eq%20false&$top=999'
+    if (-not $report -or -not $report.PSObject.Properties['value']) {
         Add-ReviewResult -Section $secEntra -CheckId "entra-mfa-all-users" -Title "Insufficient MFA Coverage" `
-            -Status "MANUAL" -Summary "az ad user list failed  -  use Graph MFA report or Prowler." -Severity "High"
+            -Status "MANUAL" -Summary "Graph authenticationMethods usage report unavailable (requires AuditLog.Read.All/Reports.Read.All consent and Entra ID P1/P2) - verify MFA coverage manually or via Prowler." -Severity "High"
         return
     }
-    $noMfa = @($users | Where-Object { -not $_.strongAuthenticationMethods -or $_.strongAuthenticationMethods.Count -eq 0 })
+    $noMfa = @($report.value)
     $status = if ($noMfa.Count -eq 0) { "PASS" } else { "FAIL" }
     Add-ReviewResult -Section $secEntra -CheckId "entra-mfa-all-users" `
         -Title "Insufficient Multi-Factor Authentication Coverage for User Accounts" -Status $status `
-        -Summary "$($noMfa.Count) user(s) without registered MFA methods (legacy az signal)." `
-        -Evidence ($noMfa | Select-Object userPrincipalName, userType) `
+        -Summary "$($noMfa.Count) user(s) without MFA registered (per Graph authenticationMethods usage report)." `
+        -Evidence ($noMfa | Select-Object userPrincipalName, userType -First 50) `
         -Remediation "Enforce MFA via Security Defaults or Conditional Access."
 }
 
@@ -267,13 +286,23 @@ Invoke-Check -Section $secEntra -CheckId "entra-admin-portal" `
 
 Invoke-Check -Section $secEntra -CheckId "entra-guest-access" `
     -Title "Unrestricted Guest Users Access" -Severity "Medium" -Test {
-    $policy = Invoke-AzCliJson -ArgumentList @("ad", "policy", "show", "--id", "GuestUserPolicy") -AllowFailure
-    $roleId = $policy.GuestUserRoleId
-    $restricted = "10dae515-f9bd-4fe7-8711-eecc663ab2e5"
-    $status = if ($roleId -eq $restricted) { "PASS" } else { "REVIEW" }
+    # NOTE: "az ad policy" is not a real Azure CLI command group - this previously always
+    # failed silently. Reuses the same authorizationPolicy Graph object as entra-guest-perms,
+    # but evaluates allowInvitesFrom (who can invite guests) rather than guestUserRoleId
+    # (what permissions guests get once invited) - a distinct, complementary setting.
+    $policy = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/policies/authorizationPolicy"
+    if (-not $policy) {
+        Add-ReviewResult -Section $secEntra -CheckId "entra-guest-access" `
+            -Title "Unrestricted Guest Users Access" -Status "MANUAL" `
+            -Summary "Graph API unavailable - verify 'guest invite restrictions' in Entra External collaboration settings manually." -Severity "Medium"
+        return
+    }
+    $allowInvitesFrom = $policy.allowInvitesFrom
+    $status = if ($allowInvitesFrom -eq 'everyone') { "REVIEW" } else { "PASS" }
     Add-ReviewResult -Section $secEntra -CheckId "entra-guest-access" `
         -Title "Unrestricted Guest Users Access" -Status $status `
-        -Summary "GuestUserRoleId = $roleId" -Evidence $policy
+        -Summary "allowInvitesFrom = $allowInvitesFrom ('everyone' means all members and existing guests can invite new guests)." `
+        -Evidence $policy -Remediation "Restrict External collaboration settings 'Guest invite restrictions' to admins/guest inviters only."
 }
 
 Invoke-Check -Section $secEntra -CheckId "entra-user-consent" `
@@ -289,6 +318,12 @@ Invoke-Check -Section $secEntra -CheckId "entra-user-consent" `
 Invoke-Check -Section $secEntra -CheckId "entra-app-register" `
     -Title "Users Can Register Applications" -Severity "High" -Test {
     $policy = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/policies/authorizationPolicy"
+    if (-not $policy) {
+        Add-ReviewResult -Section $secEntra -CheckId "entra-app-register" `
+            -Title "Users Can Register Applications" -Status "MANUAL" `
+            -Summary "Graph API unavailable - verify 'Users can register applications' setting manually." -Severity "High"
+        return
+    }
     $allowed = $policy.defaultUserRolePermissions.allowedToCreateApps
     $status = if ($allowed -eq $false) { "PASS" } else { "FAIL" }
     Add-ReviewResult -Section $secEntra -CheckId "entra-app-register" `
@@ -315,15 +350,18 @@ Invoke-Check -Section $secStorage -CheckId "storage-accounts-exist" `
     -SkipIf { (Get-ResourceCount "Microsoft.Storage/storageAccounts") -eq 0 } -Test {
     Invoke-PerSubscription {
         param($sub)
-        $accounts = Invoke-AzCliJson -ArgumentList @("storage", "account", "list")
+        $accounts = Invoke-AzCliJson -ArgumentList @("storage", "account", "list") -AllowFailure -AllowEmpty
         $findings = foreach ($sa in @($accounts)) {
             $name = $sa.name
             $rg   = $sa.resourceGroup
-            $detail = Invoke-AzCliJson -ArgumentList @("storage", "account", "show", "-n", $name, "-g", $rg)
+            # -AllowFailure so one account's transient/permission failure doesn't abort the
+            # whole per-subscription loop and discard evidence already gathered for others.
+            $detail = Invoke-AzCliJson -ArgumentList @("storage", "account", "show", "-n", $name, "-g", $rg) -AllowFailure
             [PSCustomObject]@{
                 Subscription          = $sub
                 Name                  = $name
                 ResourceGroup         = $rg
+                QueryFailed           = ($null -eq $detail)
                 AllowBlobPublicAccess = $detail.allowBlobPublicAccess
                 SupportsHttpsOnly     = $detail.enableHttpsTrafficOnly
                 MinimumTlsVersion     = $detail.minimumTlsVersion
@@ -334,7 +372,8 @@ Invoke-Check -Section $secStorage -CheckId "storage-accounts-exist" `
         $bad = @($findings | Where-Object {
             $_.AllowBlobPublicAccess -eq $true -or
             $_.SupportsHttpsOnly -eq $false -or
-            ($_.PublicNetworkAccess -eq "Enabled")
+            ($_.PublicNetworkAccess -eq "Enabled") -or
+            ($_.MinimumTlsVersion -in @('TLS1_0', 'TLS1_1'))
         })
         $status = if ($bad.Count -eq 0) { "PASS" } else { "FAIL" }
         Add-ReviewResult -Section $secStorage -CheckId "storage-accounts-exist" `
@@ -743,12 +782,27 @@ Test-ServiceResources -Section "16. DATABRICKS" -CheckId "databricks-vnet" `
         -Status $status -Summary "Sub $sub : $($bad.Count) workspace(s) without VNet injection." -Evidence $bad
 }
 
-Test-ServiceResources -Section "17. FRONT DOOR" -CheckId "afd-security" `
-    -Title 'Front Door WAF and TLS' -ResourceType "Microsoft.Cdn/profiles" -Evaluate {
-    param($sub, $items)
-    Add-ReviewResult -Section "17. FRONT DOOR" -CheckId "afd-security" -Title 'Front Door WAF and TLS' `
-        -Status "REVIEW" -Summary "Sub $sub : $(@($items).Count) CDN/Front Door profile(s)  -  verify WAF and min TLS via portal/az afd." `
-        -Evidence ($items | Select-Object name, resourceGroup, type)
+Invoke-Check -Section "17. FRONT DOOR" -CheckId "afd-security" -Title 'Front Door WAF and TLS' `
+    -SkipIf {
+        # Microsoft.Cdn/profiles covers Azure CDN and Front Door Standard/Premium; classic Azure
+        # Front Door is a distinct resource type (Microsoft.Network/frontdoors) - check both so
+        # tenants with only classic Front Door aren't silently skipped.
+        ((Get-ResourceCount "Microsoft.Cdn/profiles") -eq 0) -and ((Get-ResourceCount "Microsoft.Network/frontdoors") -eq 0)
+    } -Test {
+    Invoke-PerSubscription {
+        param($sub)
+        $afd = Invoke-AzCliJson -ArgumentList @("resource", "list", "--resource-type", "Microsoft.Cdn/profiles") -AllowFailure
+        $classic = Invoke-AzCliJson -ArgumentList @("resource", "list", "--resource-type", "Microsoft.Network/frontdoors") -AllowFailure
+        if (($null -eq $afd) -and ($null -eq $classic)) {
+            Add-ReviewResult -Section "17. FRONT DOOR" -CheckId "afd-security" -Title 'Front Door WAF and TLS' `
+                -Status "ERROR" -Summary "Sub $sub : could not list Front Door/CDN resources (query failed)."
+            return
+        }
+        $items = @($afd) + @($classic)
+        Add-ReviewResult -Section "17. FRONT DOOR" -CheckId "afd-security" -Title 'Front Door WAF and TLS' `
+            -Status "REVIEW" -Summary "Sub $sub : $(@($items).Count) CDN/Front Door (Standard/Premium + classic) profile(s)  -  verify WAF and min TLS via portal/az afd/az network front-door." `
+            -Evidence ($items | Select-Object name, resourceGroup, type)
+    }
 }
 
 Test-ServiceResources -Section "18. KEY VAULT" -CheckId "keyvault-security" `
@@ -1012,8 +1066,8 @@ if (-not $SkipIdentityTools) {
         if (Test-CommandAvailable "roadrecon") {
             Add-ReviewResult -Section $secIdentity -CheckId "identity-roadrecon" `
                 -Title "Entra ID tenant recon (ROADrecon)" -Status "MANUAL" `
-                -Summary "roadrecon found  -  Step 1: .\Start-RoadreconAuth.ps1  Step 2: roadrecon gather  Step 3: .\Start-RoadreconGui.ps1" `
-                -Remediation "Auth: Start-RoadreconAuth.ps1. Gather: roadrecon gather. GUI: Start-RoadreconGui.ps1 (http://127.0.0.1:5000). See AZURE_README.md."
+                -Summary "roadrecon found  -  Step 1: .\Start-RoadreconAuth.ps1  Step 2: .\Invoke-RoadreconGather.ps1  Step 3: .\Start-RoadreconGui.ps1" `
+                -Remediation "Auth: Start-RoadreconAuth.ps1. Gather: Invoke-RoadreconGather.ps1 (or roadrecon gather). GUI: Start-RoadreconGui.ps1 (http://127.0.0.1:5000). See AZURE_README.md."
         }
         else {
             Add-ReviewResult -Section $secIdentity -CheckId "identity-roadrecon" `

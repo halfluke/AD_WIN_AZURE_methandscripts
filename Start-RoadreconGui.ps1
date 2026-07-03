@@ -13,7 +13,9 @@
     Requires roadrecon.db from `roadrecon gather` in the current directory (or use -DbPath).
 
 .PARAMETER MsGraph
-    Pass --msgraph when gather was run with --msgraph.
+    Pass --msgraph. Only applies if you installed the unofficial Microsoft Graph fork build of
+    ROADrecon (dirkjanm/ROADtools PR #125) and ran gather with --msgraph - the mainline PyPI
+    `roadrecon` package has no --msgraph flag and will reject it. See AZURE_README.md.
 
 .PARAMETER DbPath
     Optional path to roadrecon.db (forwarded as roadrecon -d if supported by your version).
@@ -32,6 +34,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site, not the actual line that
+# failed. $_.ScriptStackTrace still has the real, innermost-first call chain, so surface
+# it here instead of relying on the default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
 
 function Write-RoadreconWarn {
     param([string]$Message)

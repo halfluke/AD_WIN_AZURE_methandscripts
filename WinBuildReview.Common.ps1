@@ -178,14 +178,18 @@ function Get-ServiceBinaryPath {
     param([string]$PathName)
     if ([string]::IsNullOrWhiteSpace($PathName)) { return $null }
     if ($PathName -match '^"([^"]+)"') { return $Matches[1] }
-    if ($PathName -match '(?i)^(\S+\.exe)') { return $Matches[1] }
+    # Lazily match up to (and including) the first ".exe" so paths with spaces in an
+    # unquoted directory name (e.g. "C:\Program Files\App\svc.exe -k netsvcs") resolve
+    # to the true binary path rather than just the first whitespace-delimited token.
+    $exeMatch = [regex]::Match($PathName, '(?i)^(.*?\.exe)')
+    if ($exeMatch.Success) { return $exeMatch.Groups[1].Value }
     return ($PathName -split '\s', 2)[0]
 }
 
 function Test-UnquotedServicePath {
     param([string]$PathName)
+    if ([string]::IsNullOrWhiteSpace($PathName) -or $PathName -match '^"') { return $false }
     $bin = Get-ServiceBinaryPath $PathName
     if (-not $bin) { return $false }
-    if ($PathName -match '^"') { return $false }
     return ($bin -match '\s')
 }

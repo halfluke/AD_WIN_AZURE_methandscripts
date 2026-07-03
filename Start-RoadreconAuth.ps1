@@ -12,8 +12,8 @@
       Server (without this, output may not show until Ctrl+C).
     - Writes tokens to .roadtools_auth in the current directory (ROADrecon default).
 
-    Auth only — run `roadrecon gather` and `roadrecon gui` afterward. Do not reuse this token
-    for AzureHound (use Get-AzureHoundRefreshToken.ps1).
+    Auth only — run `Invoke-RoadreconGather.ps1` (or `roadrecon gather`) and `roadrecon gui`
+    afterward. Do not reuse this token for AzureHound (use Get-AzureHoundRefreshToken.ps1).
 
 .PARAMETER Tenant
     Tenant domain (e.g. contoso.onmicrosoft.com) or tenant GUID. Defaults to az account tenant.
@@ -38,6 +38,20 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site, not the actual line that
+# failed. $_.ScriptStackTrace still has the real, innermost-first call chain, so surface
+# it here instead of relying on the default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
 
 $RoadreconClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 $TokenFileName = ".roadtools_auth"
@@ -99,4 +113,4 @@ if (-not (Test-Path $TokenFileName)) {
 }
 
 Write-Host "`nSuccess. Token saved to $(Join-Path (Get-Location) $TokenFileName)" -ForegroundColor Green
-Write-Host "Next: roadrecon gather   then   .\Start-RoadreconGui.ps1" -ForegroundColor Cyan
+Write-Host "Next: .\Invoke-RoadreconGather.ps1   then   .\Start-RoadreconGui.ps1" -ForegroundColor Cyan

@@ -64,6 +64,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site, not the actual line that
+# failed. $_.ScriptStackTrace still has the real, innermost-first call chain, so surface
+# it here instead of relying on the default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $toolsDir = Join-Path $scriptDir "tools"
 

@@ -42,6 +42,20 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site, not the actual line that
+# failed. $_.ScriptStackTrace still has the real, innermost-first call chain, so surface
+# it here instead of relying on the default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
+
 if (-not $SavePath) {
     $SavePath = Join-Path (Join-Path $PSScriptRoot "tools") "azurehound.refresh"
 }
@@ -95,6 +109,12 @@ while ((Get-Date) -lt $deadline -and -not $refreshToken) {
         if ($raw -match '"error"\s*:\s*"authorization_pending"') {
             $pollAgain = $true
         }
+        elseif ($raw -match '"error"\s*:\s*"slow_down"') {
+            # Per the OAuth2 device authorization grant spec (RFC 8628 3.5), the client must
+            # back off by increasing its polling interval, not treat this as a fatal error.
+            $pollSeconds += 5
+            $pollAgain = $true
+        }
         elseif ($raw -match '"error"\s*:\s*"authorization_declined"') {
             throw "Device code sign-in was declined."
         }
@@ -124,9 +144,28 @@ if ($dir -and -not (Test-Path $dir)) {
 }
 $utf8NoBom = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($SavePath, $refreshToken, $utf8NoBom)
+
+# Restrict the plaintext refresh token to the current user only - it otherwise inherits the
+# parent directory's ACLs, which on a shared/jump-box host could leave a live credential
+# readable by other local users/groups.
+try {
+    $acl = Get-Acl -LiteralPath $SavePath
+    $acl.SetAccessRuleProtection($true, $false)
+    $currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($currentUser, "FullControl", "Allow")
+    $acl.ResetAccessRule($rule)
+    Set-Acl -LiteralPath $SavePath -AclObject $acl
+}
+catch {
+    Write-Warning "Could not restrict ACL on ${SavePath}: $($_.Exception.Message)"
+}
+
 Write-Host "Saved to $SavePath"
 Write-Host ""
-Write-Host "Run AzureHound separately:"
-Write-Host "  tenant=$Tenant"
-Write-Host "  rt file: $SavePath"
-Write-Host "  azurehound list -r `"<refresh-token>`" -t $Tenant -o $(Join-Path (Split-Path -Parent $SavePath) 'azurehound.json')"
+Write-Host "Run AzureHound separately (copy/paste as-is):"
+Write-Host "  `$rt = Get-Content `"$SavePath`" -Raw"
+Write-Host "  azurehound list -r `$rt -t $Tenant -o `"$(Join-Path (Split-Path -Parent $SavePath) 'azurehound.json')`""
+Write-Host ""
+Write-Host "IMPORTANT: -r takes the TOKEN VALUE (the contents of the file above), never the" -ForegroundColor Yellow
+Write-Host "file path/name itself - passing the filename as -r produces AADSTS9002313" -ForegroundColor Yellow
+Write-Host "(""Invalid request. Request is malformed or invalid."")." -ForegroundColor Yellow

@@ -49,6 +49,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site, not the actual line that
+# failed. $_.ScriptStackTrace still has the real, innermost-first call chain, so surface
+# it here instead of relying on the default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
+
 $destroyScriptVersion = "1.0.2"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $manifestPath = Join-Path $scriptDir "AzureReviewLab-manifest.json"
@@ -274,6 +289,11 @@ function Remove-TaggedLabResources {
 
         if (-not $id) { continue }
         if ($ExcludeResourceGroup -and ($rg -eq $ExcludeResourceGroup)) { continue }
+        # az cli's --tag filter only matches one key=value pair; also require the ManagedBy tag
+        # this script applies so a resource merely sharing Purpose=CloudReviewLab (e.g. from a
+        # different tool/tenant) isn't swept up by this subscription-wide deletion.
+        $managedBy = if ($resource.tags) { [string]$resource.tags.ManagedBy } else { $null }
+        if ($managedBy -ne $script:LabManagedBy) { continue }
 
         Write-Step "Deleting tagged orphan: $type '$name' (RG: $rg)"
         Invoke-AzCli -ArgumentList @("resource", "delete", "--ids", $id, "--yes") -AllowFailure | Out-Null
@@ -283,7 +303,7 @@ function Remove-TaggedLabResources {
 function Remove-LabPublicIpOrphans {
     $ips = Invoke-AzCliJson -ArgumentList @(
         "network", "public-ip", "list",
-        "--query", "[?tags.Purpose=='$($script:LabTagValue)'].{name:name,group:resourceGroup,id:id}"
+        "--query", "[?tags.$($script:LabTagKey)=='$($script:LabTagValue)' && tags.ManagedBy=='$($script:LabManagedBy)'].{name:name,group:resourceGroup,id:id}"
     ) -AllowFailure -AllowEmpty
     if (-not $ips) { return }
 
@@ -300,7 +320,7 @@ function Remove-LabPublicIpOrphans {
 function Remove-LabManagedDisks {
     $disks = Invoke-AzCliJson -ArgumentList @(
         "disk", "list",
-        "--query", "[?tags.Purpose=='$($script:LabTagValue)'].{name:name,group:resourceGroup,id:id}"
+        "--query", "[?tags.$($script:LabTagKey)=='$($script:LabTagValue)' && tags.ManagedBy=='$($script:LabManagedBy)'].{name:name,group:resourceGroup,id:id}"
     ) -AllowFailure -AllowEmpty
     if (-not $disks) { return }
 
@@ -435,17 +455,22 @@ Write-Host "Resource group  : $ResourceGroupName"
 if ($preferredLocation) { Write-Host "Location        : $preferredLocation" }
 Write-Host ""
 
+# NOTE: the confirmation prompt must gate every destructive step below, not just the resource
+# group delete - Remove-TaggedLabResources / Remove-LabPublicIpOrphans / Remove-LabManagedDisks
+# are subscription-wide sweeps (not scoped to $ResourceGroupName) that ran unconditionally even
+# without -Force whenever the RG didn't exist (e.g. typo'd name, already deleted, or the
+# "group exists" query itself failed and -AllowFailure silently returned a falsy result).
+if (-not $Force) {
+    $answer = Read-Host "Delete resource group '$ResourceGroupName' and purge lingering/tagged lab objects across the subscription? [y/N]"
+    if ($answer -notmatch '^[yY]') {
+        Write-Host "Cancelled."
+        return
+    }
+}
+
 $rgExists = Invoke-AzCliJson -ArgumentList @("group", "exists", "-n", $ResourceGroupName) -AllowFailure
 
 if ($rgExists -eq $true) {
-    if (-not $Force) {
-        $answer = Read-Host "Delete resource group '$ResourceGroupName' and purge lingering lab objects? [y/N]"
-        if ($answer -notmatch '^[yY]') {
-            Write-Host "Cancelled."
-            return
-        }
-    }
-
     Stop-LabVirtualMachine -ResourceGroup $ResourceGroupName -VmName $vmName
     Remove-LabKeyVaultBeforeGroupDelete -ResourceGroup $ResourceGroupName -VaultName $vaultName
 
@@ -454,7 +479,12 @@ if ($rgExists -eq $true) {
     Wait-ResourceGroupDeleted -Name $ResourceGroupName -TimeoutMinutes $WaitTimeoutMinutes | Out-Null
 }
 else {
-    Write-Host "[i] Resource group '$ResourceGroupName' not found; continuing orphan and Key Vault purge checks." -ForegroundColor DarkGray
+    if ($null -eq $rgExists) {
+        Write-WarnStep "Could not confirm whether resource group '$ResourceGroupName' exists (query failed) - continuing with orphan/Key Vault purge checks only; verify manually."
+    }
+    else {
+        Write-Host "[i] Resource group '$ResourceGroupName' not found; continuing orphan and Key Vault purge checks." -ForegroundColor DarkGray
+    }
 }
 
 Invoke-LabCleanupStep -Name "soft-deleted Key Vault purge" -Action {

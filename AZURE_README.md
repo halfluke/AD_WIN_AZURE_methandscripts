@@ -9,8 +9,10 @@ Pentester-focused **Entra ID + Azure resource** automation aligned to `Draft_Met
 | Installer | `Install-AzureReviewTools.ps1` |
 | Lab | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` (**v1.0.2** destroy) |
 | ROADrecon auth | `Start-RoadreconAuth.ps1` → `.roadtools_auth` |
+| ROADrecon gather | `Invoke-RoadreconGather.ps1` → `roadrecon.db` (streams output; flags HTTP 4xx/5xx; verifies DB was written) |
 | ROADrecon GUI | `Start-RoadreconGui.ps1` → http://127.0.0.1:5000 |
 | AzureHound auth | `Get-AzureHoundRefreshToken.ps1` → `./tools/azurehound.refresh` |
+| AzureHound collect | `Invoke-AzureHoundList.ps1` → `./tools/azurehound.json` (clear pass/fail; dims expected lab-tenant warnings) |
 | Workbook | `Draft_Methodology_Azure_FINAL.xlsx` |
 
 **Scope:** Entra ID, Azure resources, RBAC, CIS-aligned misconfigs, identity attack-path hints. Read-only via **Azure CLI** and Graph REST. Does **not** require Python for the core review script.
@@ -183,22 +185,25 @@ Default ROADrecon client (`1b730954-…`, Azure AD PowerShell) is often blocked 
 
 #### 3. Gather and explore
 
+Use **`Invoke-RoadreconGather.ps1`** (recommended). It streams `roadrecon gather`'s output live (no
+buffering, so it never appears to "hang"), highlights `Error 40x/5xx` lines instead of letting them
+scroll past unnoticed, and verifies the database file was actually created/updated before reporting
+success — plain `roadrecon gather` returning exit code 0 doesn't by itself confirm useful data landed.
+
 ```powershell
-roadrecon gather
+.\Invoke-RoadreconGather.ps1
+# or, for per-user MFA method details (requires Global Reader/Security Reader/Auth Admin+):
+.\Invoke-RoadreconGather.ps1 -Mfa
 .\Start-RoadreconGui.ps1
 ```
 
+Plain `roadrecon gather` still works if you prefer it (`-d`/`-f`/`-t`/`--mfa`/`--skip-azure`/`--evade`/`--skip-first-phase` are the real upstream flags).
+
 Open **http://127.0.0.1:5000** in a browser on the **same machine** (e.g. RDP session on the DC). Plain `roadrecon gui` often works too, but PowerShell may show Flask’s Werkzeug **“development server”** stderr line as a red `NativeCommandError` — that is **not** a failure; the GUI is still running. Use `Start-RoadreconGui.ps1` to avoid the scary red line.
 
-**Success:** no `Error 403` lines during gather; hundreds of HTTP requests (not ~19); GUI shows users, apps, roles, etc.
+**Success:** no `Error 40x/5xx` lines during gather; hundreds of HTTP requests (not ~19); GUI shows users, apps, roles, etc.
 
-If gather still hits AAD Graph 403s, upgrade ROADtools and try Microsoft Graph mode (newer builds):
-
-```powershell
-python -m pip install --upgrade roadrecon roadtx
-roadrecon gather --msgraph
-.\Start-RoadreconGui.ps1 -MsGraph
-```
+If gather still hits AAD Graph 403s after upgrading (`python -m pip install --upgrade roadrecon roadtx`) and confirming the auth client (`Start-RoadreconAuth.ps1` already uses the Azure CLI client — see step 2), treat it as a **permission/role gap** on the signed-in account (needs Global Reader / Security Reader or above) first. The mainline `pip install roadrecon` build only talks to the legacy `graph.windows.net` API — it has **no built-in Microsoft Graph mode**; `--msgraph` is not a real flag on PyPI `roadrecon` (verified against the current `gather.py` argparse). A Microsoft Graph fork exists (`roadrecon gather --msgraph` / `roadrecon gui --msgraph`) from an unmerged pull request — [dirkjanm/ROADtools#125](https://github.com/dirkjanm/ROADtools/pull/125) — but it must be installed from that fork/branch manually; `Install-AzureReviewTools.ps1` does not install it.
 
 #### 4. Built-in analysis commands
 
@@ -256,25 +261,42 @@ Sign in at https://microsoft.com/devicelogin when prompted.
 
 **Step 2 — run AzureHound**:
 
+Recommended: **`Invoke-AzureHoundList.ps1`** (Windows and Linux/macOS via `pwsh`). It reads
+`./tools/azurehound.refresh`, auto-detects the tenant the same way step 1 does, and runs
+AzureHound via a controlled process instead of a plain native-command call — so harmless
+AzureHound log lines (missing `config.json`, missing Entra P1/P2 premium license, missing
+PIM/RoleManagement read scopes, a built-in role template absent from this tenant) are shown
+dimmed instead of as scary red PowerShell `NativeCommandError` blocks. It ends with a clear
+`COLLECTION SUCCEEDED` / `COLLECTION FAILED` verdict based on AzureHound's actual exit code
+and whether the output file was written — not on whether AzureHound printed anything to stderr.
+
+```powershell
+.\Invoke-AzureHoundList.ps1                       # Windows
+# pwsh ./Invoke-AzureHoundList.ps1                # Linux / macOS
+```
+
+Optional — limit to one subscription:
+
+```powershell
+.\Invoke-AzureHoundList.ps1 -SubscriptionId (az account show --query id -o tsv)
+```
+
+Manual/fallback equivalent (same two flags AzureHound actually needs — `-r` **must** be the
+token *value*, never the file path/name; passing the filename produces `AADSTS9002313`):
+
 ```powershell
 $tenant = (az account show --query tenantDefaultDomain -o tsv)
 $rt = Get-Content ./tools/azurehound.refresh -Raw
 azurehound list -r $rt -t $tenant -o ./tools/azurehound.json
 ```
 
-On **Linux**, if `azurehound` is not in PATH, use `./tools/azurehound` (installer sets executable bit). Bash equivalent:
+Bash equivalent (if `azurehound` is not in PATH, use `./tools/azurehound` — installer sets
+executable bit):
 
 ```bash
 tenant=$(az account show --query tenantDefaultDomain -o tsv)
 rt=$(cat ./tools/azurehound.refresh)
 ./tools/azurehound list -r "$rt" -t "$tenant" -o ./tools/azurehound.json
-```
-
-Optional — limit to one subscription:
-
-```powershell
-$sub = (az account show --query id -o tsv)
-azurehound list -r $rt -t $tenant -b $sub -o ./tools/azurehound.json
 ```
 
 Ingest **`azurehound.json`** in **BloodHound CE** — Docker must use **Linux containers** ([README.md](README.md#bloodhound-ce-ad-and-azure-collectors)). Pathfinding steps below.
@@ -375,6 +397,8 @@ More: [BloodHound Cypher search](https://bloodhound.specterops.io/analyze-data/e
 | `AADSTS70000` / `invalid_grant` with ROADrecon `$rt` | Wrong client — ROADrecon token is Azure CLI; AzureHound needs Azure PowerShell device-code token |
 | `Authentication_RequestFromNonPremiumTenantOrB2CTenant` | User detail APIs need Entra ID P1/P2 — users may be missing; other objects still collect |
 | `PermissionScopeNotGranted` (RoleManagement / PIM) | No PIM read scopes — normal without Global Reader + PIM licensing |
+| `Request_ResourceNotFound` on a `roleDefinitionId` | A built-in Entra role template referenced by the tenant's role-assignment data doesn't exist in this tenant's role catalog — benign, other role assignments still collect |
+| `No configuration file located at ...\.config\azurehound\config.json` (shown as a red `NativeCommandError`) | Informational only — this workflow deliberately never creates a config file and passes `-r`/`-t`/`-o` as flags instead; AzureHound falls back to those flags and continues normally. Use `Invoke-AzureHoundList.ps1` to avoid PowerShell displaying this as a scary red error block. |
 | `Resource 'a0b1b346-…' does not exist` | Benign on small tenants (default User role template) |
 
 `collection completed` with hundreds of service principals / role assignments is usually **enough for lab path analysis**.
@@ -501,14 +525,20 @@ az login
 pwsh ./Get-AzureHoundRefreshToken.ps1
 # Complete device code at https://microsoft.com/devicelogin
 
+pwsh ./Invoke-AzureHoundList.ps1
+```
+
+Optional single subscription: `pwsh ./Invoke-AzureHoundList.ps1 -SubscriptionId "$(az account show --query id -o tsv)"`.
+
+Manual/fallback equivalent:
+
+```bash
 tenant=$(az account show --query tenantDefaultDomain -o tsv)
 rt=$(cat ./tools/azurehound.refresh)
 ./tools/azurehound list -r "$rt" -t "$tenant" -o ./tools/azurehound.json
 ```
 
-Optional single subscription: add `-b "$(az account show --query id -o tsv)"` before `-o`.
-
-Ingest `./tools/azurehound.json` in **BloodHound CE** (Docker with Linux containers). ROADrecon: `pwsh ./Start-RoadreconAuth.ps1` then `roadrecon gather` — separate auth from AzureHound.
+Ingest `./tools/azurehound.json` in **BloodHound CE** (Docker with Linux containers). ROADrecon: `pwsh ./Start-RoadreconAuth.ps1` then `pwsh ./Invoke-RoadreconGather.ps1` — separate auth from AzureHound.
 
 ---
 

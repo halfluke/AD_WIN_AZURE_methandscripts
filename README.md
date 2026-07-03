@@ -16,7 +16,7 @@ Pentester-focused assessment pack with **three separate tracks**. Each track has
 
 | Track | Script | Methodology workbook | Version | Scope |
 |-------|--------|----------------------|---------|--------|
-| **Active Directory** | `ADReviewv1.ps1` | `Draft_AD_Methodology_FINAL.xlsx` | 1.0.6 | AD objects, domain/forest policy, trusts, delegation, ADCS posture, hybrid Entra |
+| **Active Directory** | `ADReviewv1.ps1` | `Draft_AD_Methodology_FINAL.xlsx` | 1.1.0 | AD objects, domain/forest policy, trusts, delegation, ADCS posture, hybrid Entra |
 | **Windows build / host** | `WinBuildReview.ps1` | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | 2.0.6 | OS services, patching, SMB, firewall, Defender, local GPO, local privesc |
 | **Azure / Entra cloud** | `AzureCloudReviewv1.ps1` | `Draft_Methodology_Azure_FINAL.xlsx` | 1.0.1 | Entra ID, Azure resources, RBAC, CIS-aligned cloud misconfigs |
 
@@ -92,8 +92,10 @@ Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy
 | `AzureCloudReviewv1.ps1`, `AzureCloudReview.Common.ps1`, `Install-AzureReviewTools.ps1` | Azure |
 | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` | Azure |
 | `Start-RoadreconAuth.ps1` | Azure (ROADrecon device-code auth helper) |
+| `Invoke-RoadreconGather.ps1` | Azure (ROADrecon gather runner — streams output, flags HTTP 4xx/5xx, verifies DB written) |
 | `Start-RoadreconGui.ps1` | Azure (ROADrecon GUI — avoids PowerShell stderr noise) |
 | `Get-AzureHoundRefreshToken.ps1` | Azure (AzureHound auth helper) |
+| `Invoke-AzureHoundList.ps1` | Azure (AzureHound collection runner — clear pass/fail, dims expected lab-tenant warnings) |
 | `Draft_Methodology_Azure_FINAL.xlsx` | Azure |
 | `tools/` | Shared binaries (SharpHound, PingCastle, AzureHound — `.exe` on Windows, plain binary on Linux) |
 | `README.md` | This overview |
@@ -110,8 +112,8 @@ The **`.xlsx` is the full engagement checklist** (every control + MITRE column J
 
 | Track | Workbook rows (approx.) | Script titles emitted (approx.) | Notes |
 |-------|-------------------------|----------------------------------|-------|
-| AD | ~129 (~110 in-scope in workbook) | ~50 | Many ADCS / GPO / Entra rows stay MANUAL; match CSV **Title** → column F |
-| WinBuild | ~67 | ~61 | Closest alignment; finish CIS PDF gaps from workbook |
+| AD | ~128 (~115 in-scope AD; 13 deferred to WinBuild §10) | ~71 | Many ADCS / GPO rows stay MANUAL; most CSV titles now match workbook **column F** exactly; match by **Title** → column F |
+| WinBuild | ~62 | ~61 | Closest alignment; finish CIS PDF gaps from workbook |
 | Azure | ~91 | ~57 | Workbook = granular CIS rows; script often **bundles by section** (e.g. §34 VMs); optional `-RunProwler` for CIS L1 depth |
 
 **Triage:** map each CSV row to the workbook by **Title (column F)**, then MITRE — not by row number. Title strings often differ from the workbook; workbook-only rows are expected.
@@ -223,18 +225,20 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure i
 
 | Component | Version | Notes |
 |-----------|---------|--------|
-| AD methodology | **FINAL** (`Draft_AD_Methodology_FINAL.xlsx`) | ~129 workbook rows (~110 in-scope); ~50 script checks |
-| `ADReviewv1.ps1` | **1.0.6** | SharpHound `--nocache`, PingCastle, Purple Knight, `-PingCastleServer` |
+| AD methodology | **FINAL** (`Draft_AD_Methodology_FINAL.xlsx`) | ~128 controls (~115 in-scope AD; 13 deferred §10); ~71 script checks |
+| `ADReviewv1.ps1` | **1.1.0** | SharpHound `--nocache`, PingCastle, Purple Knight, `-PingCastleServer`; RSAT + Graph checks for account/domain/Kerberos/hybrid Entra controls; CSV titles aligned to workbook column F |
 | `Install-ADReviewTools.ps1` | **1.0.0** | SharpHound + PingCastle (Windows) |
-| WinBuild methodology | **FINAL** (`Draft_Windows-Build-Review-Methodology_FINAL.xlsx`) | ~67 workbook rows; ~61 script checks |
+| WinBuild methodology | **FINAL** (`Draft_Windows-Build-Review-Methodology_FINAL.xlsx`) | ~62 workbook rows; ~61 script checks |
 | `WinBuildReview.ps1` | **2.0.6** | Native deep privesc checks; optional `-RunWinPeas` → timestamped winpeas `.out` + JSON/HTML/PDF when parsers installed |
 | `Install-WinBuildReviewTools.ps1` | **1.1.0** | winPEAS + PEASS parsers (Windows) |
 | Azure methodology | **FINAL** (`Draft_Methodology_Azure_FINAL.xlsx`) | ~91 workbook rows, 35 sections; ~57 script checks |
 | `AzureCloudReviewv1.ps1` | **1.0.1** | az CLI, optional Prowler (UTF-8 wrapper), §35 ROADrecon/AzureHound hints |
 | `Install-AzureReviewTools.ps1` | **1.0.0** | az, pip tools, AzureHound; `PYTHONUNBUFFERED=1`; pythoncore before WindowsApps stub |
 | `Start-RoadreconAuth.ps1` | — | ROADrecon device-code auth (tenant + unbuffered stdout) |
+| `Invoke-RoadreconGather.ps1` | — | Streams `roadrecon gather` output live; flags HTTP 4xx/5xx lines; verifies the database was actually created/updated before declaring success |
 | `Start-RoadreconGui.ps1` | — | ROADrecon GUI without PowerShell stderr noise |
 | `Get-AzureHoundRefreshToken.ps1` | — | AzureHound device-code auth → `./tools/azurehound.refresh` |
+| `Invoke-AzureHoundList.ps1` | — | Runs `azurehound list` via a controlled process; dims expected free/lab-tenant log lines instead of showing them as PowerShell `NativeCommandError`; clear pass/fail verdict from exit code + output file |
 | Lab deploy | **1.0.0** | Tier 2 lab, `-IncludeExtendedLab` |
 | Lab destroy | **1.0.2** | RG delete + KV/Cognitive purge + tag sweep |
 
@@ -254,7 +258,7 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure i
 # Linux: pwsh ./Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
 az login
 .\Start-RoadreconAuth.ps1
-roadrecon gather
+.\Invoke-RoadreconGather.ps1
 .\Start-RoadreconGui.ps1
 .\Get-AzureHoundRefreshToken.ps1
 # Linux: pwsh ./Get-AzureHoundRefreshToken.ps1

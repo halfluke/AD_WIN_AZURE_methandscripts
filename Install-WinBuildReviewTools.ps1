@@ -46,6 +46,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site, not the actual line that
+# failed. $_.ScriptStackTrace still has the real, innermost-first call chain, so surface
+# it here instead of relying on the default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $toolsDir = Join-Path $scriptDir "tools"
 $winPeasName = if ([Environment]::Is64BitOperatingSystem) { "winPEASx64.exe" } else { "winPEASx86.exe" }
@@ -189,7 +204,13 @@ function Install-WinPeasBinary {
     }
 
     New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $winPeasPath -UseBasicParsing
+    # Download to a staging file first (mirrors the SharpHound/PingCastle/AzureHound pattern) so
+    # an interrupted download can't overwrite a previously-working winPEASx64.exe with a
+    # truncated/corrupt binary while leaving the saved release tag pointing at the old (correct)
+    # version - which would otherwise report "OK release vX" for a broken binary on disk.
+    $stagingPath = "$winPeasPath.download"
+    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $stagingPath -UseBasicParsing
+    Move-Item -Path $stagingPath -Destination $winPeasPath -Force
     Save-WinPeasReleaseTag -Tag $latest.tag_name
     Write-Step "$($asset.name) saved to $winPeasPath (release $($latest.tag_name))"
 }
@@ -197,7 +218,17 @@ function Install-WinPeasBinary {
 function Get-PythonCommand {
     foreach ($name in @("python", "py", "python3")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
-        if ($cmd) { return $cmd }
+        # Skip the Windows Store app-execution-alias stub - it's a no-op placeholder when no
+        # real Python is installed and fails confusingly under pip/non-interactive invocation.
+        if ($cmd -and $cmd.Source -notmatch '(?i)\\WindowsApps\\python(3)?\.exe$') {
+            return $cmd
+        }
+    }
+    $pythonCoreRoot = Join-Path $env:LOCALAPPDATA "Python"
+    if (Test-Path $pythonCoreRoot) {
+        $pythonExe = Get-ChildItem -Path $pythonCoreRoot -Filter "python.exe" -Recurse -ErrorAction SilentlyContinue |
+            Sort-Object FullName -Descending | Select-Object -First 1
+        if ($pythonExe) { return (Get-Command $pythonExe.FullName -ErrorAction SilentlyContinue) }
     }
     return $null
 }
@@ -286,7 +317,17 @@ function Test-PeassParserLogicPatched {
     param([Parameter(Mandatory)][string]$Path)
     if (-not (Test-Path $Path)) { return $false }
     $head = (Get-Content -LiteralPath $Path -TotalCount 3 -ErrorAction SilentlyContinue) -join "`n"
-    return ($head -match 'WinBuildReview peas2json fixes applied')
+    if ($head -notmatch 'WinBuildReview peas2json fixes applied') { return $false }
+    # The header comment alone isn't proof the patch actually succeeded - a regressed regex
+    # could leave a marked-as-patched file that is still a syntax error and never self-heals
+    # on subsequent runs. Verify the file actually parses before trusting the marker.
+    $errors = $null
+    $tokens = $null
+    try {
+        [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$errors) | Out-Null
+    }
+    catch { return $false }
+    return (@($errors).Count -eq 0)
 }
 
 function Repair-PeassParserLogic {
@@ -296,9 +337,13 @@ function Repair-PeassParserLogic {
     if (Test-PeassParserLogicPatched -Path $Path) { return }
 
     $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
-    $content = $content -replace '\$FINAL_JSON\.add\(\$title,', '$FINAL_JSON[$title] ='
-    $content = $content -replace "(?i)\`$global:C_MAIN_SECTION\.'sections'\.Add\(\`$title,", '$global:C_MAIN_SECTION.''sections''[$title] ='
-    $content = $content -replace "(?i)\`$global:C_2_SECTION\.'sections'\.add\(\`$title,", '$global:C_2_SECTION.''sections''[$title] ='
+    # NOTE: these regexes must consume the statement's trailing ")" (the closing paren of the
+    # original .add(...)/.Add(...) call) as well as its "$title," prefix - matching only up to
+    # the comma left a dangling unmatched ")" after the rewrite to "[...] = <hashtable>", which
+    # is a PowerShell syntax error that broke every freshly-patched peas2json.ps1.
+    $content = $content -replace '\$FINAL_JSON\.add\(\$title,\s*(@\{.*\})\)', '$FINAL_JSON[$title] = $1'
+    $content = $content -replace "(?i)\`$global:C_MAIN_SECTION\.'sections'\.Add\(\`$title,\s*(@\{.*\})\)", '$global:C_MAIN_SECTION.''sections''[$title] = $1'
+    $content = $content -replace "(?i)\`$global:C_2_SECTION\.'sections'\.add\(\`$title,\s*(@\{.*\})\)", '$global:C_2_SECTION.''sections''[$title] = $1'
     $content = $content -replace '\$global:C_SECTION\[''lines''\] \+= @\{"raw_text" = \$line; "colors" = get_colors \$line;"clean_text" = clean_title\(clean_colors \$line\)\}', '$global:C_SECTION[''lines''] += ,([ordered]@{ raw_text = $line; colors = (get_colors $line); clean_text = (clean_title(clean_colors $line)) })'
 
     if ($content -notmatch 'WinBuildReview peas2json fixes applied') {

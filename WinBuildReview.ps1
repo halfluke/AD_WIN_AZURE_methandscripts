@@ -242,7 +242,9 @@ Invoke-Check -Section $secCis -CheckId "ntlm" -CisRef "2.3.11.x" `
     $msv = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0' `
         -Name RestrictSendingNTLMTraffic -ErrorAction SilentlyContinue
     $lsa = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' -Name LmCompatibilityLevel -ErrorAction SilentlyContinue
-    $ok = ($msv -and [int]$msv.RestrictSendingNTLMTraffic -ge 1) -and ($lsa -and [int]$lsa.LmCompatibilityLevel -ge 3)
+    # LmCompatibilityLevel=5 ("Send NTLMv2 response only. Refuse LM & NTLM") is the CIS/DISA
+    # required value; levels 3-4 still let clients negotiate legacy NTLM/LM in some paths.
+    $ok = ($msv -and [int]$msv.RestrictSendingNTLMTraffic -ge 1) -and ($lsa -and [int]$lsa.LmCompatibilityLevel -ge 5)
     Add-ReviewResult -Section $secCis -CheckId "ntlm" -Title "NTLM Restrictions" `
         -CisRef "2.3.11.x" -Status $(Get-CisAlignedStatus -Compliant $ok) `
         -Summary "RestrictSendingNTLMTraffic=$($msv.RestrictSendingNTLMTraffic); LmCompatibilityLevel=$($lsa.LmCompatibilityLevel)" `
@@ -429,7 +431,8 @@ Invoke-Check -Section $secPriv -CheckId "unquoted-services" -Title "PrivEsc - Se
 
 Invoke-Check -Section $secPriv -CheckId "programfiles-acl" -Title "PrivEsc - ACLs (Program Files)" -Severity "Medium" -Test {
     $risky = (Get-Acl 'C:\Program Files').Access | Where-Object {
-        $_.IdentityReference -match 'Everyone|Users|Authenticated Users' -and
+        $_.AccessControlType -eq 'Allow' -and
+        $_.IdentityReference -match '(^|\\)(Everyone|Users|Authenticated Users)$' -and
         $_.FileSystemRights -match 'Write|Modify|FullControl'
     }
     $count = Get-ObjectCount $risky
@@ -443,7 +446,8 @@ Invoke-Check -Section $secPriv -CheckId "modifiable-service-keys" -Title "Modifi
         try {
             $acl = Get-Acl $_.PsPath -ErrorAction Stop
             $risky = $acl.Access | Where-Object {
-                $_.IdentityReference -match 'Everyone|Users|Authenticated Users' -and
+                $_.AccessControlType -eq 'Allow' -and
+                $_.IdentityReference -match '(^|\\)(Everyone|Users|Authenticated Users)$' -and
                 $_.RegistryRights -match 'SetValue|FullControl|WriteKey'
             }
             if ($risky) { [PSCustomObject]@{ Key = $_.PSChildName; Risky = $risky } }
@@ -605,7 +609,8 @@ Invoke-Check -Section $secDisc -CheckId "proxy" -Title "Discovery - Proxy Settin
 
 Invoke-Check -Section $secDisc -CheckId "drive-acl" -Title "Discovery - Drive ACL (C:)" -Severity "High" -Test {
     $risky = (Get-Acl C:\).Access | Where-Object {
-        $_.IdentityReference -match 'Everyone|Users|Authenticated Users' -and
+        $_.AccessControlType -eq 'Allow' -and
+        $_.IdentityReference -match '(^|\\)(Everyone|Users|Authenticated Users)$' -and
         $_.FileSystemRights -match 'Write|Modify|FullControl'
     }
     $count = Get-ObjectCount $risky
@@ -720,11 +725,13 @@ Invoke-Check -Section $secSys -CheckId "wsl-presence" -Title "Defense Evasion - 
 }
 
 Invoke-Check -Section $secSys -CheckId "crash-dump" -Title "Crash Dump Settings" -Severity "Low" -Test {
+    # CrashDumpEnabled itself encodes the dump type: 0=None, 1=Complete, 2=Kernel, 3=Small,
+    # 7=Automatic. There is no separate "CrashDumpType" value under this key.
     $cc = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl' -ErrorAction SilentlyContinue
-    $fullDump = $cc -and [int]$cc.CrashDumpEnabled -eq 1 -and [int]$cc.CrashDumpType -ge 2
+    $fullDump = $cc -and [int]$cc.CrashDumpEnabled -eq 1
     Add-ReviewResult -Section $secSys -CheckId "crash-dump" -Title "Crash Dump Settings" `
         -Status $(if ($fullDump) { "REVIEW" } else { "PASS" }) `
-        -Summary "CrashDumpEnabled=$($cc.CrashDumpEnabled); CrashDumpType=$($cc.CrashDumpType)" -Evidence $cc
+        -Summary "CrashDumpEnabled=$($cc.CrashDumpEnabled) (1=Complete memory dump may contain sensitive data; 0=None,2=Kernel,3=Small,7=Automatic are lower risk)" -Evidence $cc
 }
 
 Invoke-Check -Section $secSys -CheckId "env-vars" -Title "System Info - Environment Variables" -Severity "Low" -Test {

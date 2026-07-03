@@ -95,6 +95,39 @@ function Invoke-Check {
     }
 }
 
+function Invoke-EntraCheck {
+    param(
+        [Parameter(Mandatory)][string]$Section,
+        [Parameter(Mandatory)][string]$CheckId,
+        [Parameter(Mandatory)][string]$Title,
+        [string]$Severity = "Medium",
+        [Parameter(Mandatory)][bool]$GraphModuleReady,
+        [Parameter(Mandatory)][bool]$GraphConnected,
+        [Parameter(Mandatory)][string]$GraphRemediation,
+        [Parameter(Mandatory)][scriptblock]$Test
+    )
+
+    if (-not $GraphModuleReady) {
+        Add-ReviewResult -Section $Section -CheckId $CheckId -Title $Title -Status "MANUAL" `
+            -Summary "Microsoft Graph PowerShell SDK not available." -Severity $Severity `
+            -Remediation $GraphRemediation
+        return
+    }
+    if (-not $GraphConnected) {
+        Add-ReviewResult -Section $Section -CheckId $CheckId -Title $Title -Status "MANUAL" `
+            -Summary "Connect-MgGraph failed or was cancelled." -Severity $Severity `
+            -Remediation $GraphRemediation
+        return
+    }
+    try {
+        & $Test
+    }
+    catch {
+        Add-ReviewResult -Section $Section -CheckId $CheckId -Title $Title -Status "ERROR" `
+            -Summary $_.Exception.Message -Severity $Severity
+    }
+}
+
 function Initialize-ADReviewSession {
     param(
         [string]$Domain,

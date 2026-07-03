@@ -116,9 +116,17 @@ function Invoke-AzCliRaw {
     catch {
         throw "Failed to start Azure CLI at '$azExe': $($_.Exception.Message). Install Azure CLI and open a new PowerShell session."
     }
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $stderr = $proc.StandardError.ReadToEnd()
+    # Both streams must be read concurrently, not one after the other. If az CLI writes enough
+    # to stderr (warnings, deprecation notices, per-resource errors) to fill the OS pipe buffer
+    # while we're still blocked synchronously draining stdout (ReadToEnd() only returns at
+    # EOF/process exit), az itself blocks on the full stderr pipe and can never finish - and we
+    # stay stuck waiting for stdout to close. Both sides deadlock forever on large output.
+    # Kicking off both reads as async Tasks before waiting avoids this.
+    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+    $stderrTask = $proc.StandardError.ReadToEndAsync()
     $proc.WaitForExit()
+    $stdout = $stdoutTask.GetAwaiter().GetResult()
+    $stderr = $stderrTask.GetAwaiter().GetResult()
     if ($proc.ExitCode -ne 0 -and -not $AllowFailure) {
         throw "az $(ConvertTo-AzCliArgumentString -ArgumentList $ArgumentList) failed ($($proc.ExitCode)): $stderr"
     }
@@ -250,15 +258,25 @@ function Invoke-Check {
 function Invoke-PerSubscription {
     param([Parameter(Mandatory)][scriptblock]$Action)
     foreach ($sub in $script:SubIds) {
-        Invoke-AzCliRaw -ArgumentList @("account", "set", "--subscription", $sub) | Out-Null
+        # -AllowFailure: a single inaccessible/stale subscription must not unwind the whole
+        # loop (which would be caught by Invoke-Check as one generic ERROR, silently skipping
+        # evaluation of every subscription after the failing one).
+        $result = Invoke-AzCliRaw -ArgumentList @("account", "set", "--subscription", $sub) -AllowFailure
+        if ($result.ExitCode -ne 0) {
+            Write-Warning "Could not switch to subscription '$sub' (skipping): $($result.StdErr)"
+            continue
+        }
         & $Action $sub
     }
 }
 
 function Get-ResourceCount {
     param([string]$ResourceType)
-    $items = Invoke-AzCliJson -ArgumentList @("resource", "list", "--resource-type", $ResourceType) -AllowFailure -AllowEmpty
-    if (-not $items) { return 0 }
+    # Deliberately omit -AllowEmpty: a successful call with zero resources returns @() (Count 0),
+    # while -AllowFailure alone means only a genuine query failure returns $null. This lets
+    # callers distinguish "confirmed empty" from "we don't actually know" (see Test-ServiceResources).
+    $items = Invoke-AzCliJson -ArgumentList @("resource", "list", "--resource-type", $ResourceType) -AllowFailure
+    if ($null -eq $items) { return $null }
     if ($items -isnot [array]) { return 1 }
     return $items.Count
 }
@@ -273,7 +291,13 @@ function Test-ServiceResources {
         -SkipIf { (Get-ResourceCount $ResourceType) -eq 0 } -Test {
         Invoke-PerSubscription {
             param($sub)
-            $items = Invoke-AzCliJson -ArgumentList @("resource", "list", "--resource-type", $ResourceType) -AllowFailure -AllowEmpty
+            $items = Invoke-AzCliJson -ArgumentList @("resource", "list", "--resource-type", $ResourceType) -AllowFailure
+            if ($null -eq $items) {
+                Add-ReviewResult -Section $Section -CheckId $CheckId -Title $Title -Status "ERROR" `
+                    -Summary "Sub $sub : could not list $ResourceType resources (query failed) - verify permissions/connectivity, do not treat as 'no resources'." `
+                    -Severity $Severity
+                return
+            }
             & $Evaluate $sub $items
         }
     }
@@ -374,13 +398,13 @@ function New-AzureCognitiveAccount {
         [Parameter(Mandatory)][string]$Location,
         [Parameter(Mandatory)][string]$Kind,
         [Parameter(Mandatory)][string]$Sku,
-        [Parameter(Mandatory)][string]$Tags
+        [Parameter(Mandatory)][string[]]$Tags
     )
 
     Invoke-PurgeSoftDeletedCognitiveAccount -ResourceGroupName $ResourceGroupName `
         -CognitiveName $CognitiveName -Location $Location | Out-Null
 
-    $createArgs = @(
+    $createArgs = (@(
         "cognitiveservices", "account", "create",
         "-g", $ResourceGroupName,
         "-n", $CognitiveName,
@@ -388,8 +412,8 @@ function New-AzureCognitiveAccount {
         "--kind", $Kind,
         "--sku", $Sku,
         "--yes",
-        "--tags", $Tags
-    )
+        "--tags"
+    ) + $Tags)
     $result = Invoke-AzCliRaw -ArgumentList $createArgs -AllowFailure
     if ($result.ExitCode -eq 0) { return $result }
 

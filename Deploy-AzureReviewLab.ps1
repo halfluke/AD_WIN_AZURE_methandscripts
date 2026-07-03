@@ -72,6 +72,22 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site (e.g. "New-LabExtendedServices"
+# at its top-level call), not the actual line that failed. $_.ScriptStackTrace still has
+# the real, innermost-first call chain, so surface it here instead of relying on the
+# default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $manifestPath = Join-Path $scriptDir "AzureReviewLab-manifest.json"
 
@@ -151,7 +167,7 @@ function New-LabAppService {
         [Parameter(Mandatory)][string]$PlanName,
         [Parameter(Mandatory)][string]$WebAppName,
         [Parameter(Mandatory)][string[]]$LocationCandidates,
-        [Parameter(Mandatory)][string]$Tags
+        [Parameter(Mandatory)][string[]]$Tags
     )
 
     $runtimeCandidates = Get-LabLinuxNodeRuntimes
@@ -163,15 +179,15 @@ function New-LabAppService {
             "appservice", "plan", "show", "-g", $ResourceGroupName, "-n", $PlanName
         )
         if (-not $planExists) {
-            $planResult = Invoke-AzCliRaw -ArgumentList @(
+            $planResult = Invoke-AzCliRaw -ArgumentList (@(
                 "appservice", "plan", "create",
                 "-g", $ResourceGroupName,
                 "-n", $PlanName,
                 "-l", $loc,
                 "--sku", "F1",
                 "--is-linux",
-                "--tags", $Tags
-            ) -AllowFailure
+                "--tags"
+            ) + $Tags) -AllowFailure
 
             if ($planResult.ExitCode -ne 0) {
                 if (Test-AzureComputeQuotaError -Text $planResult.StdErr) {
@@ -200,14 +216,14 @@ function New-LabAppService {
 
         foreach ($runtime in $runtimeCandidates) {
             Write-Host "    runtime: $runtime" -ForegroundColor DarkGray
-            $webResult = Invoke-AzCliRaw -ArgumentList @(
+            $webResult = Invoke-AzCliRaw -ArgumentList (@(
                 "webapp", "create",
                 "-g", $ResourceGroupName,
                 "-n", $WebAppName,
                 "-p", $PlanName,
                 "--runtime", $runtime,
-                "--tags", $Tags
-            ) -AllowFailure
+                "--tags"
+            ) + $Tags) -AllowFailure
 
             if ($webResult.ExitCode -eq 0) {
                 Invoke-AzCli -ArgumentList @(
@@ -248,7 +264,7 @@ function New-LabVirtualMachine {
         [Parameter(Mandatory)][string]$Prefix,
         [Parameter(Mandatory)][string]$Suffix,
         [Parameter(Mandatory)][string[]]$LocationCandidates,
-        [Parameter(Mandatory)][string]$Tags
+        [Parameter(Mandatory)][string[]]$Tags
     )
 
     foreach ($loc in $LocationCandidates) {
@@ -257,13 +273,49 @@ function New-LabVirtualMachine {
         if (Test-LabAzureResourceExists -ShowArgumentList @("vm", "show", "-g", $ResourceGroupName, "-n", $VmName)) {
             $vmDetail = Invoke-AzCliJson -ArgumentList @("vm", "show", "-g", $ResourceGroupName, "-n", $VmName) -AllowFailure
             Write-Host "[i] VM '$VmName' already exists." -ForegroundColor DarkGray
+
+            # Don't assume the primary-region resource names: if this VM was actually created in
+            # a prior run's fallback region, its real NIC/PIP/VNet/NSG carry region-suffixed names
+            # (see below) that differ from $PublicIpName/$NicName/$PrimaryVnetName/$PrimaryNsgName -
+            # returning the primary names unconditionally previously wrote wrong data into the
+            # manifest. Derive the real names from the VM's actual NIC when possible.
+            $realPipName = $PublicIpName
+            $realNicName = $NicName
+            $realVnetName = $PrimaryVnetName
+            $realNsgName = $PrimaryNsgName
+            $nicId = $null
+            if ($vmDetail.networkProfile -and $vmDetail.networkProfile.networkInterfaces) {
+                $nicId = [string]@($vmDetail.networkProfile.networkInterfaces)[0].id
+            }
+            if ($nicId) {
+                $nicDetail = Invoke-AzCliJson -ArgumentList @("network", "nic", "show", "--ids", $nicId) -AllowFailure
+                if ($nicDetail) {
+                    $realNicName = [string]$nicDetail.name
+                    if ($nicDetail.networkSecurityGroup -and $nicDetail.networkSecurityGroup.id) {
+                        $realNsgName = Split-Path -Leaf ([string]$nicDetail.networkSecurityGroup.id)
+                    }
+                    $ipConfig = @($nicDetail.ipConfigurations) | Select-Object -First 1
+                    if ($ipConfig) {
+                        if ($ipConfig.publicIPAddress -and $ipConfig.publicIPAddress.id) {
+                            $realPipName = Split-Path -Leaf ([string]$ipConfig.publicIPAddress.id)
+                        }
+                        if ($ipConfig.subnet -and $ipConfig.subnet.id) {
+                            # subnet id: .../virtualNetworks/<vnet>/subnets/<subnet>
+                            $subnetId = [string]$ipConfig.subnet.id
+                            $vnetSegment = ($subnetId -split '/virtualNetworks/')[1]
+                            if ($vnetSegment) { $realVnetName = ($vnetSegment -split '/')[0] }
+                        }
+                    }
+                }
+            }
+
             return @{
                 Created      = $true
                 Location     = if ($vmDetail.location) { [string]$vmDetail.location } else { $loc }
-                PublicIpName = $PublicIpName
-                NicName      = $NicName
-                VnetName     = $PrimaryVnetName
-                NsgName      = $PrimaryNsgName
+                PublicIpName = $realPipName
+                NicName      = $realNicName
+                VnetName     = $realVnetName
+                NsgName      = $realNsgName
             }
         }
 
@@ -284,7 +336,7 @@ function New-LabVirtualMachine {
                 "network", "vnet", "show", "-g", $ResourceGroupName, "-n", $vnetName, "--query", "name", "-o", "tsv"
             ) -AllowFailure
             if (-not $vnetExists) {
-                Invoke-AzCli -ArgumentList @(
+                Invoke-AzCli -ArgumentList (@(
                     "network", "vnet", "create",
                     "-g", $ResourceGroupName,
                     "-n", $vnetName,
@@ -292,16 +344,16 @@ function New-LabVirtualMachine {
                     "--address-prefix", "10.51.0.0/16",
                     "--subnet-name", $subnetName,
                     "--subnet-prefix", "10.51.1.0/24",
-                    "--tags", $Tags
-                ) | Out-Null
+                    "--tags"
+                ) + $Tags) | Out-Null
 
-                Invoke-AzCli -ArgumentList @(
+                Invoke-AzCli -ArgumentList (@(
                     "network", "nsg", "create",
                     "-g", $ResourceGroupName,
                     "-n", $nsgName,
                     "-l", $loc,
-                    "--tags", $Tags
-                ) | Out-Null
+                    "--tags"
+                ) + $Tags) | Out-Null
 
                 Invoke-AzCli -ArgumentList @(
                     "network", "nsg", "rule", "create",
@@ -324,14 +376,14 @@ function New-LabVirtualMachine {
             "network", "public-ip", "show", "-g", $ResourceGroupName, "-n", $pipName, "--query", "name", "-o", "tsv"
         ) -AllowFailure
         if (-not $pipExists) {
-            $pipResult = Invoke-AzCliRaw -ArgumentList @(
+            $pipResult = Invoke-AzCliRaw -ArgumentList (@(
                 "network", "public-ip", "create",
                 "-g", $ResourceGroupName,
                 "-n", $pipName,
                 "-l", $loc,
                 "--sku", "Basic",
-                "--tags", $Tags
-            ) -AllowFailure
+                "--tags"
+            ) + $Tags) -AllowFailure
             if ($pipResult.ExitCode -ne 0) {
                 if (Test-AzureComputeQuotaError -Text $pipResult.StdErr) { continue }
                 throw "az network public-ip create failed in ${loc}: $($pipResult.StdErr)"
@@ -342,7 +394,7 @@ function New-LabVirtualMachine {
             "network", "nic", "show", "-g", $ResourceGroupName, "-n", $nicNameLocal, "--query", "name", "-o", "tsv"
         ) -AllowFailure
         if (-not $nicExists) {
-            $nicResult = Invoke-AzCliRaw -ArgumentList @(
+            $nicResult = Invoke-AzCliRaw -ArgumentList (@(
                 "network", "nic", "create",
                 "-g", $ResourceGroupName,
                 "-n", $nicNameLocal,
@@ -351,15 +403,15 @@ function New-LabVirtualMachine {
                 "--subnet", $subnetName,
                 "--network-security-group", $nsgName,
                 "--public-ip-address", $pipName,
-                "--tags", $Tags
-            ) -AllowFailure
+                "--tags"
+            ) + $Tags) -AllowFailure
             if ($nicResult.ExitCode -ne 0) {
                 if (Test-AzureComputeQuotaError -Text $nicResult.StdErr) { continue }
                 throw "az network nic create failed in ${loc}: $($nicResult.StdErr)"
             }
         }
 
-        $vmResult = Invoke-AzCliRaw -ArgumentList @(
+        $vmResult = Invoke-AzCliRaw -ArgumentList (@(
             "vm", "create",
             "-g", $ResourceGroupName,
             "-n", $VmName,
@@ -369,8 +421,8 @@ function New-LabVirtualMachine {
             "--size", "Standard_B1s",
             "--admin-username", "labuser",
             "--generate-ssh-keys",
-            "--tags", $Tags
-        ) -AllowFailure
+            "--tags"
+        ) + $Tags) -AllowFailure
 
         if ($vmResult.ExitCode -eq 0) {
             return @{
@@ -408,7 +460,7 @@ function New-LabExtendedServices {
         [Parameter(Mandatory)][string]$ServiceBusName,
         [Parameter(Mandatory)][string]$CognitiveName,
         [Parameter(Mandatory)][string]$CosmosName,
-        [Parameter(Mandatory)][string]$Tags
+        [Parameter(Mandatory)][string[]]$Tags
     )
 
     $result = @{
@@ -424,15 +476,15 @@ function New-LabExtendedServices {
         $result.AcrCreated = $true
     }
     else {
-        $acrResult = Invoke-AzCliRaw -ArgumentList @(
+        $acrResult = Invoke-AzCliRaw -ArgumentList (@(
             "acr", "create",
             "-g", $ResourceGroupName,
             "-n", $AcrName,
             "-l", $Location,
             "--sku", "Basic",
             "--public-network-enabled", "true",
-            "--tags", $Tags
-        ) -AllowFailure
+            "--tags"
+        ) + $Tags) -AllowFailure
         if ($acrResult.ExitCode -eq 0) {
             $result.AcrCreated = $true
         }
@@ -457,14 +509,14 @@ function New-LabExtendedServices {
         $result.ServiceBusCreated = $true
     }
     else {
-        $sbResult = Invoke-AzCliRaw -ArgumentList @(
+        $sbResult = Invoke-AzCliRaw -ArgumentList (@(
             "servicebus", "namespace", "create",
             "-g", $ResourceGroupName,
             "-n", $ServiceBusName,
             "-l", $Location,
             "--sku", "Basic",
-            "--tags", $Tags
-        ) -AllowFailure
+            "--tags"
+        ) + $Tags) -AllowFailure
         if ($sbResult.ExitCode -eq 0) {
             $result.ServiceBusCreated = $true
         }
@@ -532,7 +584,7 @@ function New-LabExtendedServices {
         $result.CosmosCreated = $true
     }
     else {
-        $cosmosResult = Invoke-AzCliRaw -ArgumentList @(
+        $cosmosResult = Invoke-AzCliRaw -ArgumentList (@(
             "cosmosdb", "create",
             "-g", $ResourceGroupName,
             "-n", $CosmosName,
@@ -540,8 +592,8 @@ function New-LabExtendedServices {
             "--capabilities", "EnableServerless",
             "--default-consistency-level", "Session",
             "--public-network-access", "Enabled",
-            "--tags", $Tags
-        ) -AllowFailure
+            "--tags"
+        ) + $Tags) -AllowFailure
         if ($cosmosResult.ExitCode -eq 0) {
             $result.CosmosCreated = $true
         }
@@ -595,7 +647,7 @@ function New-LabSqlServer {
         [Parameter(Mandatory)][string]$ServerName,
         [Parameter(Mandatory)][Security.SecureString]$AdminPassword,
         [Parameter(Mandatory)][string[]]$LocationCandidates,
-        [Parameter(Mandatory)][string]$Tags
+        [Parameter(Mandatory)][string[]]$Tags
     )
 
     $existing = Invoke-AzCliJson -ArgumentList @(
@@ -619,7 +671,7 @@ function New-LabSqlServer {
 
         $plainPassword = Get-PlainTextFromSecureString -SecureString $AdminPassword
         try {
-            $create = Invoke-AzCliRaw -ArgumentList @(
+            $create = Invoke-AzCliRaw -ArgumentList (@(
                 "sql", "server", "create",
                 "-g", $ResourceGroupName,
                 "-n", $ServerName,
@@ -627,8 +679,8 @@ function New-LabSqlServer {
                 "-u", "labadmin",
                 "-p", $plainPassword,
                 "--enable-public-network", "true",
-                "--tags", $Tags
-            ) -AllowFailure
+                "--tags"
+            ) + $Tags) -AllowFailure
         }
         finally {
             $plainPassword = $null
@@ -725,7 +777,11 @@ else {
 
 $tenantId = [string]$account.tenantId
 $suffix = Get-LabSuffix -Seed "$SubscriptionId-$ResourceGroupName-$Prefix"
-$tags = "Purpose=CloudReviewLab Tier=2 ManagedBy=Deploy-AzureReviewLab.ps1"
+$labManagedBy = "Deploy-AzureReviewLab.ps1"
+# Must stay an array of separate "Key=Value" tokens - az cli's --tags parser treats each argv
+# token as one tag; a single pre-joined string previously collapsed all three tags into one
+# malformed "Purpose" value and silently dropped Tier/ManagedBy from every deployed resource.
+$tags = @("Purpose=CloudReviewLab", "Tier=2", "ManagedBy=$labManagedBy")
 
 $storageName = "${Prefix}st$suffix".Substring(0, [Math]::Min(24, "${Prefix}st$suffix".Length))
 $vaultName   = "${Prefix}kv$suffix".Substring(0, [Math]::Min(24, "${Prefix}kv$suffix".Length))
@@ -764,14 +820,14 @@ if (Test-LabResourceGroup -Name $ResourceGroupName) {
 }
 else {
     Write-Step "Creating resource group"
-    Invoke-AzCli -ArgumentList @(
-        "group", "create", "-n", $ResourceGroupName, "-l", $Location, "--tags", $tags
-    ) | Out-Null
+    Invoke-AzCli -ArgumentList (@(
+        "group", "create", "-n", $ResourceGroupName, "-l", $Location, "--tags"
+    ) + $tags) | Out-Null
 }
 
 Write-Step "Storage account (public blob access enabled)"
 if (-not (Test-LabAzureResourceExists -ShowArgumentList @("storage", "account", "show", "-n", $storageName, "-g", $ResourceGroupName))) {
-    Invoke-AzCli -ArgumentList @(
+    $storageResult = Invoke-AzCli -ArgumentList (@(
         "storage", "account", "create",
         "-n", $storageName,
         "-g", $ResourceGroupName,
@@ -779,11 +835,21 @@ if (-not (Test-LabAzureResourceExists -ShowArgumentList @("storage", "account", 
         "--sku", "Standard_LRS",
         "--allow-blob-public-access", "true",
         "--min-tls-version", "TLS1_0",
-        "--tags", $tags
-    ) -AllowFailure | Out-Null
+        "--tags"
+    ) + $tags) -AllowFailure
+    # Storage account names are globally unique across all of Azure - unlike ACR/ServiceBus/
+    # Cognitive/Cosmos below, this previously had no failure check at all, so a name collision
+    # would fail silently and the manifest would still record $storageName as if it succeeded.
+    if ($storageResult.ExitCode -ne 0) {
+        Write-Warning "Storage account create failed for '$storageName': $($storageResult.StdErr)"
+    }
 }
 else {
     Write-Host "[i] Storage account '$storageName' already exists." -ForegroundColor DarkGray
+}
+$storageAccountReady = [bool](Test-LabAzureResourceExists -ShowArgumentList @("storage", "account", "show", "-n", $storageName, "-g", $ResourceGroupName))
+if (-not $storageAccountReady) {
+    Write-Warning "Storage account '$storageName' does not exist after create attempt; manifest will record it as unavailable."
 }
 Invoke-AzCli -ArgumentList @(
     "storage", "account", "update",
@@ -795,7 +861,7 @@ Invoke-AzCli -ArgumentList @(
 
 Write-Step "Virtual network and permissive NSG"
 if (-not (Test-LabAzureResourceExists -ShowArgumentList @("network", "vnet", "show", "-g", $ResourceGroupName, "-n", $vnetName))) {
-    Invoke-AzCli -ArgumentList @(
+    Invoke-AzCli -ArgumentList (@(
         "network", "vnet", "create",
         "-g", $ResourceGroupName,
         "-n", $vnetName,
@@ -803,21 +869,21 @@ if (-not (Test-LabAzureResourceExists -ShowArgumentList @("network", "vnet", "sh
         "--address-prefix", "10.50.0.0/16",
         "--subnet-name", "default",
         "--subnet-prefix", "10.50.1.0/24",
-        "--tags", $tags
-    ) -AllowFailure | Out-Null
+        "--tags"
+    ) + $tags) -AllowFailure | Out-Null
 }
 else {
     Write-Host "[i] Virtual network '$vnetName' already exists." -ForegroundColor DarkGray
 }
 
 if (-not (Test-LabAzureResourceExists -ShowArgumentList @("network", "nsg", "show", "-g", $ResourceGroupName, "-n", $nsgName))) {
-    Invoke-AzCli -ArgumentList @(
+    Invoke-AzCli -ArgumentList (@(
         "network", "nsg", "create",
         "-g", $ResourceGroupName,
         "-n", $nsgName,
         "-l", $Location,
-        "--tags", $tags
-    ) -AllowFailure | Out-Null
+        "--tags"
+    ) + $tags) -AllowFailure | Out-Null
 }
 else {
     Write-Host "[i] NSG '$nsgName' already exists." -ForegroundColor DarkGray
@@ -840,17 +906,27 @@ Invoke-AzCli -ArgumentList @(
 
 Write-Step "Key Vault (permissive network ACLs, no purge protection)"
 if (-not (Test-LabAzureResourceExists -ShowArgumentList @("keyvault", "show", "-n", $vaultName, "-g", $ResourceGroupName))) {
-    Invoke-AzCli -ArgumentList @(
+    $keyVaultResult = Invoke-AzCli -ArgumentList (@(
         "keyvault", "create",
         "-g", $ResourceGroupName,
         "-n", $vaultName,
         "-l", $Location,
         "--enable-rbac-authorization", "false",
-        "--tags", $tags
-    ) -AllowFailure | Out-Null
+        "--tags"
+    ) + $tags) -AllowFailure
+    # Key Vault names are globally unique across all of Azure - unlike ACR/ServiceBus/Cognitive/
+    # Cosmos below, this previously had no failure check at all, so a name collision would fail
+    # silently and the manifest would still record $vaultName as if it succeeded.
+    if ($keyVaultResult.ExitCode -ne 0) {
+        Write-Warning "Key Vault create failed for '$vaultName': $($keyVaultResult.StdErr)"
+    }
 }
 else {
     Write-Host "[i] Key Vault '$vaultName' already exists; applying lab settings." -ForegroundColor DarkGray
+}
+$keyVaultReady = [bool](Test-LabAzureResourceExists -ShowArgumentList @("keyvault", "show", "-n", $vaultName, "-g", $ResourceGroupName))
+if (-not $keyVaultReady) {
+    Write-Warning "Key Vault '$vaultName' does not exist after create attempt; manifest will record it as unavailable."
 }
 
 Invoke-AzCli -ArgumentList @(
@@ -940,7 +1016,10 @@ $vmVnetName = $null
 $vmNsgName = $null
 if ($IncludeVm) {
     Write-Step "Linux VM with public IP (B1s - ongoing cost)"
-    $vmName = "${Prefix}vm$suffix".Substring(0, [Math]::Min(15, "${Prefix}vm$suffix".Length))
+    # Azure VM name limits are 1-64 chars for Linux (vs. 1-15 for Windows NetBIOS names) - this VM
+    # is always the Linux "Ubuntu2204" image, so truncating to 15 needlessly risked cutting into
+    # the trailing hash suffix (reducing collision-avoidance entropy) for longer -Prefix values.
+    $vmName = "${Prefix}vm$suffix".Substring(0, [Math]::Min(64, "${Prefix}vm$suffix".Length))
     $publicIpName = "${Prefix}-pip-$suffix"
     $nicName = "${Prefix}-nic-$suffix"
 
@@ -1028,8 +1107,8 @@ $manifest = [ordered]@{
     VmLocation       = $vmLocationUsed
     Prefix           = $Prefix
     Suffix           = $suffix
-    StorageAccount   = $storageName
-    KeyVault         = $vaultName
+    StorageAccount   = if ($storageAccountReady) { $storageName } else { $null }
+    KeyVault         = if ($keyVaultReady) { $vaultName } else { $null }
     SqlServer        = $sqlServer
     SqlAdminUser     = "labadmin"
     SqlAdminPassword = $sqlAdminPasswordForManifest

@@ -6,7 +6,7 @@
     Checks PATH and .\tools for SharpHound, PingCastle, and Purple Knight signals.
     Can download:
       - SharpHound.exe from SpecterOps/SharpHound latest release (-InstallSharpHound)
-      - PingCastle.exe from vletoux/PingCastle latest release (-InstallPingCastle)
+      - PingCastle.exe from netwrix/pingcastle latest release (-InstallPingCastle)
 
     Purple Knight (Semperis) is commercial/community — not auto-downloaded. Install from
     https://www.semperis.com/purple-knight/ then re-run this script to verify.
@@ -66,6 +66,21 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# With EAP=Stop, an unhandled exception raised deep inside a nested helper call unwinds
+# through every calling function before PowerShell's default host display shows it - and
+# that default display only shows the OUTERMOST call site, not the actual line that
+# failed. $_.ScriptStackTrace still has the real, innermost-first call chain, so surface
+# it here instead of relying on the default one-line error display.
+trap {
+    Write-Host ""
+    Write-Host "=== UNHANDLED ERROR ===" -ForegroundColor Red
+    Write-Host "Message: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Call chain (innermost first):" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace
+    exit 1
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $toolsDir = Join-Path $scriptDir "tools"
 $sharpHoundPath = Join-Path $toolsDir "SharpHound.exe"
@@ -236,7 +251,12 @@ function Install-GitHubReleaseBinary {
         Write-Step "Downloading $BinaryName from $Repo release $($release.tag_name)"
     }
 
-    $asset = $release.assets | Where-Object { $_.name -match $AssetPattern } | Select-Object -First 1
+    # Prefer non-debug release builds - some repos (e.g. SpecterOps/SharpHound) publish a
+    # "+debug" build asset alongside (and sometimes before, in listing order) the real release
+    # build; both can match a loose name/extension pattern, so filter debug builds out first.
+    $candidates = @($release.assets | Where-Object { $_.name -match $AssetPattern })
+    $asset = $candidates | Where-Object { $_.name -notmatch '(?i)[+_-]?debug' } | Select-Object -First 1
+    if (-not $asset) { $asset = $candidates | Select-Object -First 1 }
     if (-not $asset) {
         throw "Could not find asset matching '$AssetPattern' in $($release.tag_name)."
     }
@@ -276,7 +296,7 @@ function Install-SharpHoundBinary {
 function Install-PingCastleBinary {
     param([switch]$ForceUpgrade)
 
-    Install-GitHubReleaseBinary -Repo "vletoux/PingCastle" `
+    Install-GitHubReleaseBinary -Repo "netwrix/pingcastle" `
         -AssetPattern '(?i)^PingCastle_.*\.zip$' `
         -BinaryName "PingCastle.exe" `
         -DestinationPath $pingCastlePath `
@@ -464,7 +484,7 @@ if (-not $CheckOnly) {
 $latestSharpHound = $null
 $latestPingCastle = $null
 try { $latestSharpHound = Get-LatestGitHubRelease -Repo "SpecterOps/SharpHound" } catch { }
-try { $latestPingCastle = Get-LatestGitHubRelease -Repo "vletoux/PingCastle" } catch { }
+try { $latestPingCastle = Get-LatestGitHubRelease -Repo "netwrix/pingcastle" } catch { }
 
 $extraPaths = @($toolsDir)
 $toolChecks = @(

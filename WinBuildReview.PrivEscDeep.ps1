@@ -30,6 +30,7 @@ function Test-WeakPrincipalAce {
         [string]$RightsPattern = 'Write|Modify|FullControl|TakeOwnership|ChangePermissions'
     )
     if (-not $AccessEntry) { return $false }
+    if ($AccessEntry.PSObject.Properties['AccessControlType'] -and $AccessEntry.AccessControlType -ne 'Allow') { return $false }
     $id = [string]$AccessEntry.IdentityReference
     if ($id -notmatch '^(Everyone|Authenticated Users|BUILTIN\\Users|Users)$') { return $false }
 
@@ -136,7 +137,9 @@ function Get-WeakServiceDaclHits {
         if ($hits.Count -ge $MaxHits) { break }
         $sd = sc.exe sdshow $svc.Name 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0 -or -not $sd.Trim()) { continue }
-        if ($sd -match '(?i)(A|OA);;[^;]*(GA|GW|GR|SW|WO|RPWP|WP)[^;]*;;(BU|AU|WD)\)') {
+        # SDDL ACE = ace_type;ace_flags;rights;object_guid;inherit_object_guid;sid - when the two
+        # GUID fields are empty (the common case), that's 3 semicolons between rights and the SID.
+        if ($sd -match '(?i)(A|OA);;[^;]*(GA|GW|GR|SW|WO|RPWP|WP)[^;]*;;;(BU|AU|WD)\)') {
             $hits.Add([PSCustomObject]@{
                     Service   = $svc.Name
                     StartName = $svc.StartName

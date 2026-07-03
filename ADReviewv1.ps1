@@ -49,7 +49,7 @@
     .\ADReviewv1.ps1 -Server "DC01" -OutputPath "C:\Reviews\AD" -IncludeEntra
 
 .NOTES
-    Version     : 1.0.6
+    Version     : 1.1.0
     Methodology : Draft_AD_Methodology_FINAL.xlsx
     Requires    : RSAT ActiveDirectory module, domain user with AD read access
     Optional    : PingCastle, Purple Knight, SharpHound (see Install-ADReviewTools.ps1), Microsoft Graph PowerShell
@@ -71,7 +71,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$scriptVersion = "1.0.6"
+$scriptVersion = "1.1.0"
 $startTime     = Get-Date
 $timestamp     = $startTime.ToString("yyyyMMdd-HHmmss")
 $scriptPath    = $MyInvocation.MyCommand.Path
@@ -125,11 +125,11 @@ Write-Host "Domain: $($script:DomainDns) | Output: $OutputPath`n" -ForegroundCol
 # ---------------------------------------------------------------------------
 
 if (-not $SkipExternalTools) {
-    Invoke-Check -Section $secAuto -CheckId "bloodhound" -Title "BloodHound / SharpHound collection" -Severity "Info" -Test {
+    Invoke-Check -Section $secAuto -CheckId "bloodhound" -Title "Run bloodhound COLLECTORS (review on kali machine later)" -Severity "Info" -Test {
         $sharpHound = Resolve-ADReviewTool -ToolName "SharpHound.exe"
         if ($RunSharpHound) {
             if (-not $sharpHound) {
-                Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "BloodHound / SharpHound collection" `
+                Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "Run bloodhound COLLECTORS (review on kali machine later)" `
                     -Status "MANUAL" `
                     -Summary "SharpHound.exe not found in PATH or .\tools." `
                     -Remediation "$installToolsHint | $bloodHoundCeHint"
@@ -148,36 +148,36 @@ if (-not $SkipExternalTools) {
                 if ($LASTEXITCODE -ne 0) {
                     throw "SharpHound exited with code $LASTEXITCODE. Latest zip: $zipPath"
                 }
-                Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "BloodHound / SharpHound collection" `
+                Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "Run bloodhound COLLECTORS (review on kali machine later)" `
                     -Status "INFO" -Summary "SharpHound collection saved to $zipPath (ingest into BloodHound CE)." `
                     -Remediation "Ingest zip in BloodHound CE (Administration -> File Ingest). $bloodHoundCeHint"
             }
             catch {
-                Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "BloodHound / SharpHound collection" `
+                Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "Run bloodhound COLLECTORS (review on kali machine later)" `
                     -Status "ERROR" -Summary $_.Exception.Message
             }
             return
         }
 
         if ($sharpHound) {
-            Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "BloodHound / SharpHound collection" `
+            Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "Run bloodhound COLLECTORS (review on kali machine later)" `
                 -Status "MANUAL" `
                 -Summary "SharpHound found at $sharpHound - run with -RunSharpHound or: SharpHound.exe -c All --domain $($script:DomainDns) --nocache" `
                 -Remediation "Ingest zip into BloodHound CE for attack-path analysis. $bloodHoundCeHint"
         }
         else {
-            Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "BloodHound / SharpHound collection" `
+            Add-ReviewResult -Section $secAuto -CheckId "bloodhound" -Title "Run bloodhound COLLECTORS (review on kali machine later)" `
                 -Status "MANUAL" `
                 -Summary "SharpHound not installed. Run Install-ADReviewTools.ps1 for SharpHound.exe; install BloodHound CE GUI separately." `
                 -Remediation "$installToolsHint | $bloodHoundCeHint"
         }
     }
 
-    Invoke-Check -Section $secAuto -CheckId "pingcastle" -Title "PingCastle domain healthcheck" -Severity "Info" -Test {
+    Invoke-Check -Section $secAuto -CheckId "pingcastle" -Title "PurpleKnight / Pingcastle" -Severity "Info" -Test {
         $pingCastle = Resolve-ADReviewTool -ToolName "PingCastle.exe"
         if ($RunPingCastle) {
             if (-not $pingCastle) {
-                Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PingCastle domain healthcheck" `
+                Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PurpleKnight / Pingcastle" `
                     -Status "MANUAL" `
                     -Summary "PingCastle.exe not found in PATH or .\tools." `
                     -Remediation $installToolsHint
@@ -194,12 +194,12 @@ if (-not $SkipExternalTools) {
                 if ($LASTEXITCODE -ne 0) {
                     throw "PingCastle exited with code $LASTEXITCODE"
                 }
-                Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PingCastle domain healthcheck" `
+                Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PurpleKnight / Pingcastle" `
                     -Status "INFO" -Summary "PingCastle output saved to $pcOut (server $pcServer)." `
                     -Remediation "Powered-off or stale DCs still add minutes (PingCastle has no --timeout). Demote/remove stale DCs or use -PingCastleServer for a known-online DC."
             }
             catch {
-                Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PingCastle domain healthcheck" `
+                Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PurpleKnight / Pingcastle" `
                     -Status "ERROR" -Summary $_.Exception.Message
             }
             finally {
@@ -209,24 +209,24 @@ if (-not $SkipExternalTools) {
         }
 
         if ($pingCastle) {
-            Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PingCastle domain healthcheck" `
+            Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PurpleKnight / Pingcastle" `
                 -Status "MANUAL" `
                 -Summary "PingCastle found at $pingCastle - run with -RunPingCastle or: PingCastle.exe --healthcheck --server $($script:ADDomain.PDCEmulator)" `
                 -Remediation "Use -RunPingCastle to execute during ADReview."
         }
         else {
-            Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PingCastle domain healthcheck" `
+            Add-ReviewResult -Section $secAuto -CheckId "pingcastle" -Title "PurpleKnight / Pingcastle" `
                 -Status "MANUAL" `
                 -Summary "PingCastle not installed. Install via Install-ADReviewTools.ps1." `
                 -Remediation $installToolsHint
         }
     }
 
-    Invoke-Check -Section $secAuto -CheckId "purple-knight" -Title "Purple Knight AD assessment" -Severity "Info" -Test {
+    Invoke-Check -Section $secAuto -CheckId "purple-knight" -Title "PurpleKnight / Pingcastle" -Severity "Info" -Test {
         $pkCmdlet = Get-Command Invoke-PKAssessment -ErrorAction SilentlyContinue
         if ($RunPurpleKnight) {
             if (-not $pkCmdlet) {
-                Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "Purple Knight AD assessment" `
+                Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "PurpleKnight / Pingcastle" `
                     -Status "MANUAL" `
                     -Summary "Invoke-PKAssessment not available. Install Purple Knight from Semperis." `
                     -Remediation "https://www.semperis.com/purple-knight/"
@@ -237,11 +237,11 @@ if (-not $SkipExternalTools) {
             try {
                 Push-Location $pkOut
                 & Invoke-PKAssessment
-                Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "Purple Knight AD assessment" `
+                Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "PurpleKnight / Pingcastle" `
                     -Status "INFO" -Summary "Purple Knight assessment output directory: $pkOut"
             }
             catch {
-                Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "Purple Knight AD assessment" `
+                Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "PurpleKnight / Pingcastle" `
                     -Status "ERROR" -Summary $_.Exception.Message
             }
             finally {
@@ -251,13 +251,13 @@ if (-not $SkipExternalTools) {
         }
 
         if ($pkCmdlet) {
-            Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "Purple Knight AD assessment" `
+            Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "PurpleKnight / Pingcastle" `
                 -Status "MANUAL" `
                 -Summary "Invoke-PKAssessment available - run with -RunPurpleKnight or use the Purple Knight GUI." `
                 -Remediation "Map results to methodology Automated Tooling column."
         }
         else {
-            Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "Purple Knight AD assessment" `
+            Add-ReviewResult -Section $secAuto -CheckId "purple-knight" -Title "PurpleKnight / Pingcastle" `
                 -Status "MANUAL" `
                 -Summary "Purple Knight not detected. Install from Semperis (not auto-downloaded by this repo)." `
                 -Remediation "https://www.semperis.com/purple-knight/"
@@ -266,9 +266,9 @@ if (-not $SkipExternalTools) {
 }
 else {
     foreach ($tool in @(
-        @{ Id = "bloodhound"; Title = "BloodHound / SharpHound collection" }
-        @{ Id = "pingcastle"; Title = "PingCastle domain healthcheck" }
-        @{ Id = "purple-knight"; Title = "Purple Knight AD assessment" }
+        @{ Id = "bloodhound"; Title = "Run bloodhound COLLECTORS (review on kali machine later)" }
+        @{ Id = "pingcastle"; Title = "PurpleKnight / Pingcastle" }
+        @{ Id = "purple-knight"; Title = "PurpleKnight / Pingcastle" }
     )) {
         Add-ReviewResult -Section $secAuto -CheckId $tool.Id -Title $tool.Title -Status "SKIP" `
             -Summary "Skipped (-SkipExternalTools)." -Severity "Info"
@@ -316,7 +316,7 @@ Invoke-Check -Section $secAcct -CheckId "no-preauth" `
 }
 
 Invoke-Check -Section $secAcct -CheckId "duplicate-spn" `
-    -Title "Duplicate SPNs" -Severity "High" -Test {
+    -Title "Check for Duplicated SPNS" -Severity "High" -Test {
     $map = @{}
     $dups = [System.Collections.Generic.List[string]]::new()
     Get-ADObject -Filter 'servicePrincipalName -like "*"' -Properties servicePrincipalName, sAMAccountName |
@@ -330,7 +330,7 @@ Invoke-Check -Section $secAcct -CheckId "duplicate-spn" `
                 }
             }
         }
-    Add-ReviewResult -Section $secAcct -CheckId "duplicate-spn" -Title "Duplicate SPNs" `
+    Add-ReviewResult -Section $secAcct -CheckId "duplicate-spn" -Title "Check for Duplicated SPNS" `
         -Status $(if ($dups.Count -eq 0) { "PASS" } else { "FAIL" }) `
         -Summary "$($dups.Count) duplicate SPN occurrence(s)" -Evidence $dups
 }
@@ -415,16 +415,26 @@ Invoke-Check -Section $secAcct -CheckId "reversible-encryption" `
 
 Invoke-Check -Section $secAcct -CheckId "dcsync-rights" `
     -Title "Non-default principals with Directory Replication Permissions" -Severity "Critical" -Test {
+    # DCSync = ExtendedRight ACEs for DS-Replication-Get-Changes / -All (and the "all extended
+    # rights" wildcard GUID). ActiveDirectoryRights never renders as the extended right's display
+    # name - it must be matched via ObjectType GUID, not a string match on ActiveDirectoryRights.
+    $dcsyncGuids = @(
+        '1131f6aa-9c07-11d1-f79f-00c04fc2dcd2', # DS-Replication-Get-Changes
+        '1131f6ad-9c07-11d1-f79f-00c04fc2dcd2', # DS-Replication-Get-Changes-All
+        '00000000-0000-0000-0000-000000000000'  # all extended rights
+    )
     $acl = Get-Acl "AD:\$($script:DomainDn)"
     $hits = $acl.Access | Where-Object {
-        $_.ActiveDirectoryRights -match 'Replicating Directory Change' -and
+        $_.ActiveDirectoryRights -match 'ExtendedRight' -and
+        $_.ObjectType.ToString() -in $dcsyncGuids -and
+        $_.AccessControlType -eq 'Allow' -and
         $_.IdentityReference -notmatch 'NT AUTHORITY\\SYSTEM|Enterprise Domain Controllers|Domain Admins|Administrators'
-    } | Select-Object IdentityReference, ActiveDirectoryRights, AccessControlType
+    } | Select-Object IdentityReference, ActiveDirectoryRights, ObjectType, AccessControlType
     $count = @($hits).Count
     Add-ReviewResult -Section $secAcct -CheckId "dcsync-rights" `
         -Title "Non-default principals with Directory Replication Permissions" `
         -Status $(if ($count -eq 0) { "PASS" } else { "FAIL" }) `
-        -Summary "$count non-default principal(s) with replication-related rights on domain root" -Evidence $hits
+        -Summary "$count non-default principal(s) with DS-Replication-Get-Changes[-All] (DCSync) rights on domain root" -Evidence $hits
 }
 
 Invoke-Check -Section $secAcct -CheckId "svc-domain-admin" `
@@ -460,6 +470,140 @@ Invoke-Check -Section $secAcct -CheckId "nondefault-pgid" `
         -Title "Users and computers with non-default Primary Group IDs" `
         -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
         -Summary "$count object(s) with non-default primaryGroupID" -Evidence @{ Users = $users; Computers = $comps }
+}
+
+Invoke-Check -Section $secAcct -CheckId "alt-security-identities" `
+    -Title "Accounts with altSecurityIdentities configured" -Severity "Medium" -Test {
+    $hits = Get-ADObject -LDAPFilter '(altSecurityIdentities=*)' -Properties altSecurityIdentities, objectClass |
+        Select-Object Name, objectClass, altSecurityIdentities
+    $count = @($hits).Count
+    Add-ReviewResult -Section $secAcct -CheckId "alt-security-identities" `
+        -Title "Accounts with altSecurityIdentities configured" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+        -Summary "$count object(s) with altSecurityIdentities mappings (certificate/Kerberos name mapping - verify each mapping is expected)." `
+        -Evidence ($hits | Select-Object -First 25)
+}
+
+Invoke-Check -Section $secAcct -CheckId "computer-pwd-prohibited" `
+    -Title "Computer Account Password Change Prohibited" -Severity "Medium" -Test {
+    $cantChangeFlag = 0x40
+    $flagged = Get-ADComputer -Filter * -Properties userAccountControl, PasswordLastSet |
+        Where-Object {
+            ($_.userAccountControl -band $cantChangeFlag) -or
+            (-not $_.PasswordLastSet) -or
+            ($_.PasswordLastSet -lt (Get-Date).AddDays(-90))
+        } | Select-Object Name, userAccountControl, PasswordLastSet
+    $count = @($flagged).Count
+    Add-ReviewResult -Section $secAcct -CheckId "computer-pwd-prohibited" `
+        -Title "Computer Account Password Change Prohibited" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+        -Summary "$count computer account(s) with PASSWD_CANT_CHANGE set, no PasswordLastSet, or PasswordLastSet stale >90 days (default machine password rotation is ~30 days)." `
+        -Evidence ($flagged | Select-Object -First 25)
+}
+
+Invoke-Check -Section $secAcct -CheckId "logon-script-acl" `
+    -Title "Users Able to Modify Logon Scripts" -Severity "Medium" -Test {
+    $usersWithScript = Get-ADUser -Filter 'scriptPath -like "*"' -Properties scriptPath |
+        Select-Object Name, SamAccountName, scriptPath
+    $count = @($usersWithScript).Count
+    $writable = @()
+    if (Test-RunningOnDomainController) {
+        $sysvolScripts = "\\$($script:DomainDns)\SYSVOL\$($script:DomainDns)\scripts"
+        try {
+            $acl = Get-Acl $sysvolScripts -ErrorAction Stop
+            $writable = @($acl.Access | Where-Object {
+                $_.FileSystemRights -match 'Write|Modify|FullControl' -and
+                $_.IdentityReference -notmatch 'Domain Admins|Enterprise Admins|SYSTEM|Administrators|CREATOR OWNER'
+            } | Select-Object IdentityReference, FileSystemRights)
+        }
+        catch {
+            # SYSVOL scripts share may not exist or may be unreachable; fall back to inventory-only result.
+        }
+    }
+    $status = if ($writable.Count -gt 0) { "FAIL" } elseif ($count -gt 0) { "REVIEW" } else { "PASS" }
+    Add-ReviewResult -Section $secAcct -CheckId "logon-script-acl" `
+        -Title "Users Able to Modify Logon Scripts" -Status $status `
+        -Summary "$count user(s) with scriptPath configured; $($writable.Count) non-default writer(s) found on SYSVOL scripts share (checked only when run on a DC)." `
+        -Evidence @{ Users = ($usersWithScript | Select-Object -First 25); SysvolScriptsAcl = $writable }
+}
+
+Invoke-Check -Section $secAcct -CheckId "dpapi-acl" `
+    -Title "Non-default principals with access to DPAPI key" -Severity "Critical" -Test {
+    # BCKUPKEY_* DPAPI backup key objects (objectClass=secret) live directly under CN=System
+    # in the domain partition, not under a CN=Secrets sub-container (see DSInternals research).
+    $dpapiBase = "CN=System,$($script:DomainDn)"
+    try {
+        $dpapiObjects = @(Get-ADObject -SearchBase $dpapiBase -SearchScope OneLevel -Filter 'objectClass -eq "secret"' -ErrorAction Stop)
+    }
+    catch {
+        Add-ReviewResult -Section $secAcct -CheckId "dpapi-acl" `
+            -Title "Non-default principals with access to DPAPI key" -Status "MANUAL" `
+            -Summary "Could not read $dpapiBase - verify read rights or check manually with DSInternals Get-ADReplBackupKey / Get-BootKey."
+        return
+    }
+    if ($dpapiObjects.Count -eq 0) {
+        Add-ReviewResult -Section $secAcct -CheckId "dpapi-acl" `
+            -Title "Non-default principals with access to DPAPI key" -Status "REVIEW" `
+            -Summary "No DPAPI backup key secret objects found under $dpapiBase (unexpected on a healthy domain - verify manually)."
+        return
+    }
+    $hits = @()
+    foreach ($obj in $dpapiObjects) {
+        $acl = Get-Acl "AD:\$($obj.DistinguishedName)" -ErrorAction SilentlyContinue
+        if (-not $acl) { continue }
+        $hits += $acl.Access | Where-Object {
+            $_.IdentityReference -notmatch 'NT AUTHORITY\\SYSTEM|Domain Admins|Enterprise Admins|Administrators|Domain Controllers|Enterprise Domain Controllers'
+        } | Select-Object @{N='Object';E={$obj.Name}}, IdentityReference, ActiveDirectoryRights, AccessControlType
+    }
+    $count = @($hits).Count
+    Add-ReviewResult -Section $secAcct -CheckId "dpapi-acl" `
+        -Title "Non-default principals with access to DPAPI key" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "FAIL" }) `
+        -Summary "$count non-default ACE(s) on DPAPI backup key object(s) under $dpapiBase" -Evidence ($hits | Select-Object -First 25)
+}
+
+Invoke-Check -Section $secAcct -CheckId "server-trust-delegation" `
+    -Title "Users with permissions to set Server Trust Account" -Severity "High" -Test {
+    $schemaNc = (Get-ADRootDSE).schemaNamingContext
+    $computerSchema = Get-ADObject -SearchBase $schemaNc -Filter "lDAPDisplayName -eq 'computer'" -Properties schemaIDGUID
+    if (-not $computerSchema) {
+        Add-ReviewResult -Section $secAcct -CheckId "server-trust-delegation" `
+            -Title "Users with permissions to set Server Trust Account" -Status "MANUAL" `
+            -Summary "Could not resolve 'computer' class schemaIDGUID - verify Create Computer Objects delegation manually."
+        return
+    }
+    $computerGuid = [System.Guid]$computerSchema.schemaIDGUID
+    $acl = Get-Acl "AD:\$($script:DomainDn)"
+    $hits = $acl.Access | Where-Object {
+        $_.ActiveDirectoryRights -match 'CreateChild' -and
+        $_.ObjectType -eq $computerGuid -and
+        $_.IdentityReference -notmatch 'NT AUTHORITY\\SYSTEM|Enterprise Domain Controllers|Domain Admins|Enterprise Admins|Administrators|Account Operators'
+    } | Select-Object IdentityReference, ActiveDirectoryRights, AccessControlType
+    $count = @($hits).Count
+    Add-ReviewResult -Section $secAcct -CheckId "server-trust-delegation" `
+        -Title "Users with permissions to set Server Trust Account" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+        -Summary "$count non-default principal(s) delegated Create Computer Objects at domain root (OU-level delegation not scanned - review manually with dsacls)." `
+        -Evidence $hits
+}
+
+Invoke-Check -Section $secAcct -CheckId "native-da-usage" `
+    -Title "Native Domain Controller Administrator in Use" -Severity "Medium" -Test {
+    $admin = Get-ADUser -Filter { SamAccountName -eq 'Administrator' } -Properties LastLogonDate, PasswordLastSet `
+        -ErrorAction SilentlyContinue
+    if (-not $admin) {
+        Add-ReviewResult -Section $secAcct -CheckId "native-da-usage" `
+            -Title "Native Domain Controller Administrator in Use" -Status "MANUAL" `
+            -Summary "Built-in Administrator (RID 500) account not found by SamAccountName - verify manually if renamed."
+        return
+    }
+    $recentlyUsed = $admin.LastLogonDate -and ($admin.LastLogonDate -gt (Get-Date).AddDays(-30))
+    Add-ReviewResult -Section $secAcct -CheckId "native-da-usage" `
+        -Title "Native Domain Controller Administrator in Use" `
+        -Status $(if ($recentlyUsed) { "REVIEW" } else { "PASS" }) `
+        -Summary "Built-in Administrator LastLogonDate=$($admin.LastLogonDate) (LastLogonDate is not replicated - value reflects only the queried DC)." `
+        -Evidence $admin `
+        -Remediation "Use named, tiered admin accounts instead of the built-in RID 500 Administrator for day-to-day tasks."
 }
 
 # ---------------------------------------------------------------------------
@@ -545,20 +689,54 @@ Invoke-Check -Section $secGroup -CheckId "computer-in-priv-group" `
         -Summary "$count computer account(s) in privileged groups" -Evidence $hits
 }
 
+Invoke-Check -Section $secGroup -CheckId "fsp-priv-group" `
+    -Title "Foreign Security Principals in Privileged Group" -Severity "High" -Test {
+    $hits = @()
+    foreach ($g in @('Domain Admins', 'Enterprise Admins', 'Schema Admins', 'Administrators')) {
+        $hits += Get-ADGroupMember $g -ErrorAction SilentlyContinue |
+            Where-Object { $_.objectClass -eq 'foreignSecurityPrincipal' } |
+            Select-Object @{N='Group';E={$g}}, Name, SID
+    }
+    $count = @($hits).Count
+    Add-ReviewResult -Section $secGroup -CheckId "fsp-priv-group" `
+        -Title "Foreign Security Principals in Privileged Group" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+        -Summary "$count foreign security principal(s) in privileged groups (cross-domain/cross-forest trust identity - verify expected)." `
+        -Evidence $hits
+}
+
 # ---------------------------------------------------------------------------
 # Domain settings
 # ---------------------------------------------------------------------------
 
 Invoke-Check -Section $secDomain -CheckId "ds-heuristics" `
-    -Title "Weak DsHeuristics Configuration" -Severity "High" -Test {
+    -Title "Weak DsHeuristics Configuration" -Severity "Medium" -Test {
     $ds = Get-DirectoryServiceConfig
     $h = $ds.dsHeuristics
-    $issues = @()
-    if ($h -and $h.Length -ge 7 -and $h[6] -ne '0') { $issues += "AdminSDHolder mask (pos 7)=$($h[6])" }
-    if ($h -match '2') { $issues += "Anonymous NSPI may be enabled" }
     Add-ReviewResult -Section $secDomain -CheckId "ds-heuristics" -Title "Weak DsHeuristics Configuration" `
-        -Status $(if ($issues.Count -eq 0) { "PASS" } else { "REVIEW" }) `
-        -Summary $(if ($issues) { $issues -join '; ' } else { "dsHeuristics=$h" }) -Evidence $ds
+        -Status "INFO" `
+        -Summary "dsHeuristics=$(if ($h) { $h } else { '(not set - all defaults apply)' }). Anonymous LDAP (pos 7) and AdminSDHolder exclusions (pos 16) are scored individually by the anonymous-ldap and adminsdholder checks." `
+        -Evidence $ds
+}
+
+Invoke-Check -Section $secDomain -CheckId "adminsdholder" `
+    -Title "AdminSDHolder protection Disabled" -Severity "High" -Test {
+    $ds = Get-DirectoryServiceConfig
+    $h = $ds.dsHeuristics
+    $maskChar = if ($h -and $h.Length -ge 16) { $h[15] } else { '0' }
+    $maskValue = 0
+    try { $maskValue = [Convert]::ToInt32([string]$maskChar, 16) } catch { $maskValue = 0 }
+    $excludedGroups = [System.Collections.Generic.List[string]]::new()
+    if ($maskValue -band 0x1) { $excludedGroups.Add('Account Operators') }
+    if ($maskValue -band 0x2) { $excludedGroups.Add('Server Operators') }
+    if ($maskValue -band 0x4) { $excludedGroups.Add('Print Operators') }
+    if ($maskValue -band 0x8) { $excludedGroups.Add('Backup Operators') }
+    Add-ReviewResult -Section $secDomain -CheckId "adminsdholder" `
+        -Title "AdminSDHolder protection Disabled" `
+        -Status $(if ($excludedGroups.Count -eq 0) { "PASS" } else { "FAIL" }) `
+        -Summary "dwAdminSDExMask (dsHeuristics pos 16)='$maskChar'; groups excluded from AdminSDHolder/SDProp protection: $(if ($excludedGroups.Count -gt 0) { $excludedGroups -join ', ' } else { 'none' })" `
+        -Evidence @{ DsHeuristics = $h; DwAdminSDExMask = $maskChar; ExcludedGroups = $excludedGroups } `
+        -Remediation "Set dsHeuristics position 16 back to '0' so all default operator groups remain protected by AdminSDHolder/SDProp."
 }
 
 Invoke-Check -Section $secDomain -CheckId "sid-history" `
@@ -598,6 +776,67 @@ Invoke-Check -Section $secDomain -CheckId "nt4-trusts" `
         -Summary "$count downlevel (NT4) trust(s)" -Evidence $hits
 }
 
+Invoke-Check -Section $secDomain -CheckId "weak-password-hashing" `
+    -Title "Weak Password Hashing Permitted" -Severity "High" -Test {
+    $useDesOnlyFlag = 0x200000
+    $users = Get-ADUser -Filter 'userAccountControl -band 2097152' -Properties userAccountControl |
+        Select-Object Name, SamAccountName, userAccountControl
+    $count = @($users).Count
+    Add-ReviewResult -Section $secDomain -CheckId "weak-password-hashing" `
+        -Title "Weak Password Hashing Permitted" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "FAIL" }) `
+        -Summary "$count account(s) with USE_DES_KEY_ONLY (0x$('{0:X}' -f $useDesOnlyFlag)) set - forces weak DES Kerberos keys." `
+        -Evidence $users
+}
+
+Invoke-Check -Section $secDomain -CheckId "kerberos-weak-objects" `
+    -Title "Weak Kerberos Configuration" -Severity "High" -Test {
+    $desOrRc4 = Get-ADObject -LDAPFilter '(msDS-SupportedEncryptionTypes=*)' -Properties msDS-SupportedEncryptionTypes, objectClass |
+        Where-Object {
+            $v = [int]$_.'msDS-SupportedEncryptionTypes'
+            ($v -band 0x1) -or ($v -band 0x2) -or ($v -band 0x4)
+        } | Select-Object Name, objectClass, @{N='SupportedEncryptionTypes';E={$_.'msDS-SupportedEncryptionTypes'}}
+    $count = @($desOrRc4).Count
+    Add-ReviewResult -Section $secDomain -CheckId "kerberos-weak-objects" `
+        -Title "Weak Kerberos Configuration" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+        -Summary "$count object(s) with msDS-SupportedEncryptionTypes permitting DES/RC4 (bits 0x1/0x2/0x4)." `
+        -Evidence ($desOrRc4 | Select-Object -First 25) `
+        -Remediation "Set msDS-SupportedEncryptionTypes to AES only (0x18) where supported by the account's clients/services."
+}
+
+Invoke-Check -Section $secDomain -CheckId "domain-ntlm-restrict" `
+    -Title "Domain NTLM authentication policy not restricted" -Severity "Medium" -Test {
+    if (-not (Test-RunningOnDomainController)) {
+        Add-ReviewResult -Section $secDomain -CheckId "domain-ntlm-restrict" `
+            -Title "Domain NTLM authentication policy not restricted" -Status "MANUAL" `
+            -Summary "Run on a DC, or review 'Network security: Restrict NTLM' GPO settings via RSOP/PingCastle." `
+            -Remediation "Set Network security: Restrict NTLM: Incoming/Outgoing NTLM traffic policies to Deny or Audit-then-Deny."
+        return
+    }
+    # Values: 0/unset = Allow all (not restricted), 1 = Audit all (logs only, nothing blocked),
+    # 2 = Deny all (actually enforced). Only 2 constitutes real restriction; 1 is audit-only.
+    $lsa = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\MSV1_0' `
+        -Name RestrictSendingNTLMTraffic, RestrictReceivingNTLMTraffic -ErrorAction SilentlyContinue
+    $incoming = $lsa.RestrictReceivingNTLMTraffic
+    $outgoing = $lsa.RestrictSendingNTLMTraffic
+    $enforced = ($incoming -eq 2) -or ($outgoing -eq 2)
+    $auditOnly = (-not $enforced) -and (($incoming -eq 1) -or ($outgoing -eq 1))
+    $status = if ($enforced) { "PASS" } else { "REVIEW" }
+    $summary = if ($enforced) {
+        "RestrictSendingNTLMTraffic=$outgoing; RestrictReceivingNTLMTraffic=$incoming (Deny all enforced on at least one direction)."
+    }
+    elseif ($auditOnly) {
+        "RestrictSendingNTLMTraffic=$outgoing; RestrictReceivingNTLMTraffic=$incoming (Audit-only - NTLM traffic is logged but NOT blocked; set to 2/Deny to enforce)."
+    }
+    else {
+        "RestrictSendingNTLMTraffic=$outgoing; RestrictReceivingNTLMTraffic=$incoming (0/unset = not restricted)."
+    }
+    Add-ReviewResult -Section $secDomain -CheckId "domain-ntlm-restrict" `
+        -Title "Domain NTLM authentication policy not restricted" `
+        -Status $status -Summary $summary -Evidence $lsa
+}
+
 Invoke-Check -Section $secDomain -CheckId "recycle-bin" `
     -Title "Recycle Bin Disabled" -Severity "Low" -Test {
     $rb = Get-ADOptionalFeature -Filter 'Name -like "*Recycle Bin*"' -ErrorAction SilentlyContinue
@@ -624,6 +863,59 @@ Invoke-Check -Section $secDomain -CheckId "ntfrs-sysvol" `
     Add-ReviewResult -Section $secDomain -CheckId "ntfrs-sysvol" -Title "NTFRS Enabled" `
         -Status "MANUAL" -Summary "Run dfsrmig /getmigrationstate on a DC to confirm DFSR SYSVOL replication." `
         -Remediation "Migrate off NTFRS if migration state is not Native."
+}
+
+if (Test-RunningOnDomainController) {
+    Invoke-Check -Section $secDomain -CheckId "net-cease" `
+        -Title "Net Cease not Enabled" -Severity "Medium" -Test {
+        $netSessionEnum = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\LanmanServer\DefaultSecurity' `
+            -Name SrvsvcSessionInfo -ErrorAction SilentlyContinue
+        $hardened = [bool]$netSessionEnum
+        Add-ReviewResult -Section $secDomain -CheckId "net-cease" -Title "Net Cease not Enabled" `
+            -Status $(if ($hardened) { "PASS" } else { "REVIEW" }) `
+            -Summary $(if ($hardened) { "SrvsvcSessionInfo ACL override present (NetSessionEnum access appears restricted)." } `
+                else { "No SrvsvcSessionInfo ACL override found - NetSessionEnum (NetCease) likely not hardened." }) `
+            -Remediation "Apply the NetCease (harden-srvsvc-config) ACL to restrict NetSessionEnum to admins."
+    }
+
+    Invoke-Check -Section $secDomain -CheckId "null-sessions" `
+        -Title "Null Sessions Permitted" -Severity "High" -Test {
+        $lsa = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa' `
+            -Name RestrictAnonymous, RestrictAnonymousSAM, EveryoneIncludesAnonymous -ErrorAction SilentlyContinue
+        $issues = @()
+        if (-not ($lsa.RestrictAnonymous -ge 1)) { $issues += "RestrictAnonymous=$($lsa.RestrictAnonymous)" }
+        if (-not ($lsa.RestrictAnonymousSAM -ge 1)) { $issues += "RestrictAnonymousSAM=$($lsa.RestrictAnonymousSAM)" }
+        if ($lsa.EveryoneIncludesAnonymous -eq 1) { $issues += "EveryoneIncludesAnonymous=1" }
+        Add-ReviewResult -Section $secDomain -CheckId "null-sessions" -Title "Null Sessions Permitted" `
+            -Status $(if ($issues.Count -eq 0) { "PASS" } else { "FAIL" }) `
+            -Summary $(if ($issues) { $issues -join '; ' } else { "Anonymous access restrictions look enforced on this DC." }) `
+            -Evidence $lsa
+    }
+
+    Invoke-Check -Section $secDomain -CheckId "anonymous-ldap" `
+        -Title "Anonymous Access to the Domain Configured" -Severity "High" -Test {
+        $ds = Get-DirectoryServiceConfig
+        $h = $ds.dsHeuristics
+        # Per [MS-ADTS] dSHeuristics spec: position 7 (fLDAPBlockAnonOps) - if this character
+        # is '2', the block-anonymous-ops heuristic is FALSE (anonymous LDAP beyond RootDSE is
+        # ALLOWED, insecure - also DISA STIG V-243503). Any other value (including unset/default)
+        # means the heuristic is TRUE (blocking enforced, secure).
+        $anonymousLdapAllowed = ($h -and $h.Length -ge 7 -and $h[6] -eq '2')
+        Add-ReviewResult -Section $secDomain -CheckId "anonymous-ldap" -Title "Anonymous Access to the Domain Configured" `
+            -Status $(if ($anonymousLdapAllowed) { "FAIL" } else { "PASS" }) `
+            -Summary "dsHeuristics fLDAPBlockAnonOps (pos 7)=$(if ($h -and $h.Length -ge 7) { $h[6] } else { '(not set - defaults to blocked)' }) ('2' allows anonymous LDAP beyond RootDSE if ACLs permit - insecure; any other value/unset blocks it)." `
+            -Evidence $ds
+    }
+}
+else {
+    foreach ($manualDc in @(
+        @{ Id = "net-cease"; Title = "Net Cease not Enabled" }
+        @{ Id = "null-sessions"; Title = "Null Sessions Permitted" }
+        @{ Id = "anonymous-ldap"; Title = "Anonymous Access to the Domain Configured" }
+    )) {
+        Add-ReviewResult -Section $secDomain -CheckId $manualDc.Id -Title $manualDc.Title -Status "MANUAL" `
+            -Summary "Run ADReview on a domain controller for this registry-based check, or verify via PingCastle/Purple Knight."
+    }
 }
 
 Add-ReviewResult -Section $secDomain -CheckId "gpo-delegation-manual" `
@@ -688,7 +980,8 @@ if (Test-RunningOnDomainController) {
         $k = Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Parameters' `
             -Name SupportedEncryptionTypes -ErrorAction SilentlyContinue
         $val = [int]$k.SupportedEncryptionTypes
-        $weak = ($val -band 0x1) -or ($val -band 0x2) -or ($val -band 0x8)
+        # Bitmask: 0x1=DES-CBC-CRC, 0x2=DES-CBC-MD5, 0x4=RC4-HMAC (weak); 0x8=AES128, 0x10=AES256 (strong).
+        $weak = ($val -band 0x1) -or ($val -band 0x2) -or ($val -band 0x4)
         Add-ReviewResult -Section $secSvc -CheckId "kerberos-encryption" `
             -Title "Weak Encryption Methods Supported" `
             -Status $(if (-not $weak) { "PASS" } else { "FAIL" }) `
@@ -760,6 +1053,31 @@ Invoke-Check -Section $secDeleg -CheckId "rbcd-delegation" `
         -Summary "$count DC(s) with RBCD (msDS-AllowedToActOnBehalfOfOtherIdentity) configured" -Evidence $hits
 }
 
+Invoke-Check -Section $secDeleg -CheckId "delegation-orphan-spn" `
+    -Title "Delegations with no Receiver" -Severity "Medium" -Test {
+    $spnMap = @{}
+    Get-ADObject -Filter 'servicePrincipalName -like "*"' -Properties servicePrincipalName |
+        ForEach-Object {
+            foreach ($spn in $_.servicePrincipalName) { $spnMap[$spn.ToLowerInvariant()] = $_.DistinguishedName }
+        }
+    $delegators = Get-ADObject -Filter 'msDS-AllowedToDelegateTo -like "*"' -Properties msDS-AllowedToDelegateTo, Name
+    $orphans = [System.Collections.Generic.List[object]]::new()
+    foreach ($d in $delegators) {
+        foreach ($target in $d.'msDS-AllowedToDelegateTo') {
+            if (-not $spnMap.ContainsKey($target.ToLowerInvariant())) {
+                $orphans.Add([PSCustomObject]@{ Delegator = $d.Name; TargetSpn = $target })
+            }
+        }
+    }
+    $count = $orphans.Count
+    Add-ReviewResult -Section $secDeleg -CheckId "delegation-orphan-spn" `
+        -Title "Delegations with no Receiver" `
+        -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+        -Summary "$count constrained-delegation target SPN(s) do not match any currently registered SPN (orphaned target - could be re-registered by an attacker)." `
+        -Evidence ($orphans | Select-Object -First 25) `
+        -Remediation "Remove stale msDS-AllowedToDelegateTo entries pointing at SPNs no longer in use."
+}
+
 Add-ReviewResult -Section $secDeleg -CheckId "delegation-acl-manual" `
     -Title "Delegation granted to Any User / GPO Linking Delegation" -Status "MANUAL" -Severity "High" `
     -Summary "Use BloodHound/PingCastle for Everyone/Authenticated Users delegation and GPO link ACLs." `
@@ -779,10 +1097,10 @@ Add-ReviewResult -Section $secCert -CheckId "adcs-templates" `
 # ---------------------------------------------------------------------------
 
 Invoke-Check -Section $secMaint -CheckId "tombstone-lifetime" `
-    -Title "Low Tombstone Lifetime" -Severity "Medium" -Test {
+    -Title "Check AD Tombstone Lifetime is > 180 Days" -Severity "Medium" -Test {
     $ds = Get-DirectoryServiceConfig
     $days = [int]$ds.tombstoneLifetime
-    Add-ReviewResult -Section $secMaint -CheckId "tombstone-lifetime" -Title "Low Tombstone Lifetime" `
+    Add-ReviewResult -Section $secMaint -CheckId "tombstone-lifetime" -Title "Check AD Tombstone Lifetime is > 180 Days" `
         -Status $(if ($days -ge 180) { "PASS" } else { "REVIEW" }) `
         -Summary "tombstoneLifetime = $days days" -Evidence $ds
 }
@@ -893,17 +1211,17 @@ if ($IncludeEntra) {
     }
 
     Invoke-Check -Section $secEntra -CheckId "entra-global-admins" `
-        -Title "Excessive Admins Configured" -Severity "High" -Test {
+        -Title "Excessive  Admins Configured" -Severity "High" -Test {
         if (-not $entraGraphModuleReady) {
             Add-ReviewResult -Section $secEntra -CheckId "entra-global-admins" `
-                -Title "Excessive Admins Configured" -Status "MANUAL" `
+                -Title "Excessive  Admins Configured" -Status "MANUAL" `
                 -Summary "Microsoft Graph PowerShell SDK not available." `
                 -Remediation $entraGraphRemediation
             return
         }
         if (-not $entraGraphConnected) {
             Add-ReviewResult -Section $secEntra -CheckId "entra-global-admins" `
-                -Title "Excessive Admins Configured" -Status "MANUAL" `
+                -Title "Excessive  Admins Configured" -Status "MANUAL" `
                 -Summary "Connect-MgGraph failed or was cancelled." `
                 -Remediation $entraGraphRemediation
             return
@@ -928,7 +1246,7 @@ if ($IncludeEntra) {
 
         if ($graphFailed) {
             Add-ReviewResult -Section $secEntra -CheckId "entra-global-admins" `
-                -Title "Excessive Admins Configured" -Status "MANUAL" `
+                -Title "Excessive  Admins Configured" -Status "MANUAL" `
                 -Summary "Could not enumerate Global Administrator assignments via Graph." `
                 -Remediation $entraGraphRemediation
             return
@@ -936,9 +1254,150 @@ if ($IncludeEntra) {
 
         $count = $members.Count
         Add-ReviewResult -Section $secEntra -CheckId "entra-global-admins" `
-            -Title "Excessive Admins Configured" `
+            -Title "Excessive  Admins Configured" `
             -Status $(if ($count -le 5) { "PASS" } else { "REVIEW" }) `
             -Summary "Global Administrator count: $count" -Evidence ($members | Select-Object -First 15 Id, AdditionalProperties, principalId)
+    }
+
+    $entraAuthPolicy = $null
+    $entraCaPolicies = $null
+    if ($entraGraphModuleReady -and $entraGraphConnected) {
+        $entraAuthPolicy = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/policies/authorizationPolicy"
+        $entraCaPolicies = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/identity/conditionalAccess/policies"
+    }
+
+    Invoke-EntraCheck -Section $secEntra -CheckId "entra-app-registration" `
+        -Title "Non-Admin Users able to Register Apps" -Severity "Medium" `
+        -GraphModuleReady $entraGraphModuleReady -GraphConnected $entraGraphConnected -GraphRemediation $entraGraphRemediation -Test {
+        if (-not $entraAuthPolicy) {
+            Add-ReviewResult -Section $secEntra -CheckId "entra-app-registration" `
+                -Title "Non-Admin Users able to Register Apps" -Status "MANUAL" `
+                -Summary "Graph request for authorizationPolicy failed - verify tenant permissions (Policy.Read.All)." `
+                -Remediation $entraGraphRemediation
+            return
+        }
+        $allowed = $entraAuthPolicy.defaultUserRolePermissions.allowedToCreateApps
+        Add-ReviewResult -Section $secEntra -CheckId "entra-app-registration" `
+            -Title "Non-Admin Users able to Register Apps" `
+            -Status $(if ($allowed) { "FAIL" } else { "PASS" }) `
+            -Summary "defaultUserRolePermissions.allowedToCreateApps=$allowed" `
+            -Evidence $entraAuthPolicy.defaultUserRolePermissions `
+            -Remediation "Disable 'Users can register applications' in Entra ID > Users > User settings unless required."
+    }
+
+    Invoke-EntraCheck -Section $secEntra -CheckId "entra-guest-invite" `
+        -Title "Guests can Invite new guests" -Severity "Medium" `
+        -GraphModuleReady $entraGraphModuleReady -GraphConnected $entraGraphConnected -GraphRemediation $entraGraphRemediation -Test {
+        if (-not $entraAuthPolicy) {
+            Add-ReviewResult -Section $secEntra -CheckId "entra-guest-invite" `
+                -Title "Guests can Invite new guests" -Status "MANUAL" `
+                -Summary "Graph request for authorizationPolicy failed - verify tenant permissions (Policy.Read.All)." `
+                -Remediation $entraGraphRemediation
+            return
+        }
+        $allowInvitesFrom = $entraAuthPolicy.allowInvitesFrom
+        $restricted = $allowInvitesFrom -in @('none', 'adminsAndGuestInviters')
+        Add-ReviewResult -Section $secEntra -CheckId "entra-guest-invite" `
+            -Title "Guests can Invite new guests" `
+            -Status $(if ($restricted) { "PASS" } else { "REVIEW" }) `
+            -Summary "allowInvitesFrom=$allowInvitesFrom" -Evidence $entraAuthPolicy `
+            -Remediation "Set External collaboration settings > Guest invite restrictions to 'Only users with the Guest Inviter role' or stricter."
+    }
+
+    Invoke-EntraCheck -Section $secEntra -CheckId "entra-user-consent" `
+        -Title "Azure AD Permits Unrestricted user consent" -Severity "High" `
+        -GraphModuleReady $entraGraphModuleReady -GraphConnected $entraGraphConnected -GraphRemediation $entraGraphRemediation -Test {
+        if (-not $entraAuthPolicy) {
+            Add-ReviewResult -Section $secEntra -CheckId "entra-user-consent" `
+                -Title "Azure AD Permits Unrestricted user consent" -Status "MANUAL" `
+                -Summary "Graph request for authorizationPolicy failed - verify tenant permissions (Policy.Read.All)." `
+                -Remediation $entraGraphRemediation
+            return
+        }
+        $grantPolicies = @($entraAuthPolicy.defaultUserRolePermissions.permissionGrantPoliciesAssigned)
+        $legacyBroad = $grantPolicies | Where-Object { $_ -match 'legacy' }
+        $status = if (@($legacyBroad).Count -gt 0) { "FAIL" } elseif ($grantPolicies.Count -gt 0) { "REVIEW" } else { "PASS" }
+        Add-ReviewResult -Section $secEntra -CheckId "entra-user-consent" `
+            -Title "Azure AD Permits Unrestricted user consent" -Status $status `
+            -Summary "permissionGrantPoliciesAssigned=$($grantPolicies -join ', ')" -Evidence $grantPolicies `
+            -Remediation "Restrict user consent to verified publishers with low-risk permissions, or require admin consent."
+    }
+
+    Invoke-EntraCheck -Section $secEntra -CheckId "entra-mfa-posture" `
+        -Title "Weak Azure MFA Configuration" -Severity "High" `
+        -GraphModuleReady $entraGraphModuleReady -GraphConnected $entraGraphConnected -GraphRemediation $entraGraphRemediation -Test {
+        if (-not $entraCaPolicies) {
+            Add-ReviewResult -Section $secEntra -CheckId "entra-mfa-posture" `
+                -Title "Weak Azure MFA Configuration" -Status "MANUAL" `
+                -Summary "Graph request for Conditional Access policies failed (requires Policy.Read.All and Entra ID P1/P2)." `
+                -Remediation $entraGraphRemediation
+            return
+        }
+        $mfaPolicies = @($entraCaPolicies.value) | Where-Object {
+            $_.state -eq 'enabled' -and $_.grantControls -and $_.grantControls.builtInControls -contains 'mfa'
+        }
+        Add-ReviewResult -Section $secEntra -CheckId "entra-mfa-posture" `
+            -Title "Weak Azure MFA Configuration" `
+            -Status $(if (@($mfaPolicies).Count -ge 1) { "PASS" } else { "REVIEW" }) `
+            -Summary "$(@($mfaPolicies).Count) enabled Conditional Access polic(ies) require MFA. Cross-check Security Defaults status separately." `
+            -Evidence ($mfaPolicies | Select-Object displayName, state)
+    }
+
+    Invoke-EntraCheck -Section $secEntra -CheckId "entra-legacy-auth" `
+        -Title "Legacy Authentication Enabled in Azure" -Severity "High" `
+        -GraphModuleReady $entraGraphModuleReady -GraphConnected $entraGraphConnected -GraphRemediation $entraGraphRemediation -Test {
+        if (-not $entraCaPolicies) {
+            Add-ReviewResult -Section $secEntra -CheckId "entra-legacy-auth" `
+                -Title "Legacy Authentication Enabled in Azure" -Status "MANUAL" `
+                -Summary "Graph request for Conditional Access policies failed (requires Policy.Read.All and Entra ID P1/P2)." `
+                -Remediation $entraGraphRemediation
+            return
+        }
+        $legacyBlockPolicies = @($entraCaPolicies.value) | Where-Object {
+            $_.state -eq 'enabled' -and $_.conditions.clientAppTypes -and
+            (($_.conditions.clientAppTypes -contains 'exchangeActiveSync') -or ($_.conditions.clientAppTypes -contains 'other')) -and
+            $_.grantControls -and $_.grantControls.builtInControls -contains 'block'
+        }
+        Add-ReviewResult -Section $secEntra -CheckId "entra-legacy-auth" `
+            -Title "Legacy Authentication Enabled in Azure" `
+            -Status $(if (@($legacyBlockPolicies).Count -ge 1) { "PASS" } else { "REVIEW" }) `
+            -Summary "$(@($legacyBlockPolicies).Count) enabled Conditional Access polic(ies) block legacy authentication clients. If 0, verify via Entra sign-in logs (legacy client filter)." `
+            -Evidence ($legacyBlockPolicies | Select-Object displayName, state) `
+            -Remediation "Block legacy authentication (basic auth / exchangeActiveSync / other clients) via Conditional Access."
+    }
+
+    Invoke-EntraCheck -Section $secEntra -CheckId "entra-sync-priv-admins" `
+        -Title "AD privileged users synced to AAD" -Severity "High" `
+        -GraphModuleReady $entraGraphModuleReady -GraphConnected $entraGraphConnected -GraphRemediation $entraGraphRemediation -Test {
+        $onPremPriv = @()
+        foreach ($g in 'Domain Admins', 'Enterprise Admins', 'Schema Admins') {
+            $onPremPriv += Get-ADGroupMember $g -ErrorAction SilentlyContinue | Where-Object { $_.objectClass -eq 'user' }
+        }
+        $onPremPriv = @($onPremPriv | Sort-Object SamAccountName -Unique)
+        $syncedPrivRoles = [System.Collections.Generic.List[object]]::new()
+        foreach ($p in $onPremPriv) {
+            $sidValue = $p.SID.Value
+            $filter = [uri]::EscapeDataString("onPremisesSecurityIdentifier eq '$sidValue'")
+            $userResult = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/users?`$filter=$filter&`$select=id,displayName,onPremisesSyncEnabled"
+            if (-not $userResult -or -not $userResult.value -or $userResult.value.Count -eq 0) { continue }
+            $u = $userResult.value[0]
+            $rolesResult = Invoke-GraphGet -Uri "https://graph.microsoft.com/v1.0/users/$($u.id)/memberOf/microsoft.graph.directoryRole?`$select=displayName"
+            $roleNames = if ($rolesResult -and $rolesResult.value) { @($rolesResult.value.displayName) } else { @() }
+            if ($roleNames.Count -gt 0) {
+                $syncedPrivRoles.Add([PSCustomObject]@{
+                    OnPremUser = $p.SamAccountName
+                    CloudUser  = $u.displayName
+                    CloudRoles = ($roleNames -join ', ')
+                })
+            }
+        }
+        $count = $syncedPrivRoles.Count
+        Add-ReviewResult -Section $secEntra -CheckId "entra-sync-priv-admins" `
+            -Title "AD privileged users synced to AAD" `
+            -Status $(if ($count -eq 0) { "PASS" } else { "REVIEW" }) `
+            -Summary "$count on-prem privileged account(s) (Domain/Enterprise/Schema Admins) also hold an Entra directory role while synced." `
+            -Evidence $syncedPrivRoles `
+            -Remediation "Exclude on-prem Tier-0 admins from Entra Connect sync, or ensure they hold no cloud-only privileged roles."
     }
 }
 else {
