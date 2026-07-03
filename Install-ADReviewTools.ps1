@@ -54,7 +54,7 @@
     Shared tools folder with Install-AzureReviewTools.ps1 (.\tools).
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$InstallSharpHound,
     [switch]$InstallPingCastle,

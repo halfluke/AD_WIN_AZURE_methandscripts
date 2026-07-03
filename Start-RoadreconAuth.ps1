@@ -31,7 +31,7 @@
     Requires: roadrecon (pip), network to login.microsoftonline.com, az CLI optional for default tenant.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Tenant,
     [switch]$ForceReauth

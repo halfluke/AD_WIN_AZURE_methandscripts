@@ -49,7 +49,7 @@
     Cross-platform: PowerShell 5.1+ on Windows, PowerShell 7 (pwsh) on Linux/macOS.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Tenant,
     [string]$RefreshTokenPath,

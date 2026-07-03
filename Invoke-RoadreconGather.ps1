@@ -59,7 +59,7 @@
     running an unofficial Microsoft-Graph fork build - see AZURE_README.md).
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$Mfa,
     [string]$DbPath,

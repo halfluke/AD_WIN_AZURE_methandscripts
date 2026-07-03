@@ -55,7 +55,7 @@
     Optional    : PingCastle, Purple Knight, SharpHound (see Install-ADReviewTools.ps1), Microsoft Graph PowerShell
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Domain = "",
     [string]$Server = "",

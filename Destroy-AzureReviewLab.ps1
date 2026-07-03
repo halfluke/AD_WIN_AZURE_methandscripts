@@ -39,7 +39,7 @@
     Script version: 1.0.2
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$ResourceGroupName = "",
     [string]$SubscriptionId = "",

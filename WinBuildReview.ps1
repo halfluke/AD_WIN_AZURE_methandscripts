@@ -55,7 +55,7 @@
     Requires    : Administrator recommended for full coverage
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$OutputPath = "",
     [ValidateSet('', '2012', '2012R2', '2016', '2019', '2022', '2025')]

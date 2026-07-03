@@ -30,7 +30,7 @@
     Optional: Prowler, Microsoft Graph PowerShell, AzureHound, ROADrecon.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter()]
     [string[]]$SubscriptionId,

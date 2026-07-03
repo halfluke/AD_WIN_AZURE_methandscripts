@@ -56,7 +56,7 @@
     Delete with .\Destroy-AzureReviewLab.ps1 when finished to stop charges.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$ResourceGroupName = "rg-cloudreview-lab",
     [string]$Location = "eastus",

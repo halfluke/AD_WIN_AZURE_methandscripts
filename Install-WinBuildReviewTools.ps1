@@ -37,7 +37,7 @@
     Release tags stored in .\tools\winpeas.release and .\tools\parsers\parsers.release.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$InstallAll,
     [switch]$Upgrade,

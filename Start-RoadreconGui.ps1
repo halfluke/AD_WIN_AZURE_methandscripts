@@ -27,7 +27,7 @@
     The Werkzeug "development server" line is expected - not a failure.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$MsGraph,
     [string]$DbPath

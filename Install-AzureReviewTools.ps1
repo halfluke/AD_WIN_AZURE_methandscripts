@@ -52,7 +52,7 @@
     BloodHound CE GUI: Docker + bloodhound-cli — https://bloodhound.specterops.io/get-started/quickstart/community-edition-quickstart
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [switch]$InstallAzCli,
     [switch]$InstallPythonTools,

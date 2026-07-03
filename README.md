@@ -246,6 +246,11 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure i
 
 ## Quick reference
 
+**PowerShell parameters use a single dash** (`-RunSharpHound`, `-Mfa`), not the double-dash CLI
+style of `az`/`roadrecon`/`azurehound` (`--mfa`). Every script below rejects positional/mistyped
+arguments outright (`A positional parameter cannot be found that accepts argument '...'`) rather
+than silently misbinding them into the wrong parameter.
+
 ```powershell
 .\Install-ADReviewTools.ps1 -InstallAll -AddToolsToUserPath
 .\ADReviewv1.ps1 -RunSharpHound -RunPingCastle

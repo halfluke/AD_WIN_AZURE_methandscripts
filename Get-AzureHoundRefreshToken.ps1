@@ -34,7 +34,7 @@
     Requires network access to login.microsoftonline.com. Optional: az CLI for default tenant.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Tenant,
     [string]$SavePath
