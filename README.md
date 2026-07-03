@@ -74,7 +74,7 @@ Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZUR
 | `Install-AzureReviewTools.ps1` | Installs pip tools | 5.1+ (Windows) or **7+ pwsh** (Linux/macOS) | Windows, Linux, or macOS with network |
 | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` | No | 5.1+ / pwsh | Same as Azure review |
 
-**Prowler:** Python **3.10–3.12** only (not 3.14). Prefer **pythoncore** over the Windows Store `python` stub. **ROADrecon:** 3.10+; use **`Start-RoadreconAuth.ps1`** / **`Start-RoadreconGui.ps1`** on Windows Server (see [AZURE_README.md](AZURE_README.md)).
+**Prowler:** Python **3.10–3.12** only (not 3.14). Prefer **pythoncore** over the Windows Store `python` stub. **ROADrecon:** 3.10+; use **`Start-RoadreconAuth.ps1`** → **`Invoke-RoadreconGather.ps1`** → **`Start-RoadreconGui.ps1`** on Windows Server (see [AZURE_README.md](AZURE_README.md)).
 
 Server **2008 / 2008 R2** are not WinBuild targets. ADReview can assess a legacy **domain** from a modern RSAT jump host.
 
