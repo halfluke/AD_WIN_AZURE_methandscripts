@@ -6,7 +6,7 @@ Pentester-focused **AD-only** automation aligned to `Draft_AD_Methodology_FINAL.
 |------|--------|
 | Script | `ADReviewv1.ps1` (**v1.1.0**) |
 | Shared | `ADReview.Common.ps1` |
-| Installer | `Install-ADReviewTools.ps1` |
+| Installer | `Install-ADReviewTools.ps1` (**v1.0.0**) |
 | Workbook | `Draft_AD_Methodology_FINAL.xlsx` |
 
 **Scope:** AD objects, domain/forest policy, trusts, delegation, ADCS posture (mostly MANUAL), optional hybrid Entra signals. **Not** Windows Server CIS baselines, SMB, patching, or Azure resources.

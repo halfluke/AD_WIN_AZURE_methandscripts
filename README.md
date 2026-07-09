@@ -59,7 +59,7 @@ Without `-Run*`, AD and Azure scripts **detect** tools and emit **MANUAL** guida
 
 **Tool upgrades:** `-Upgrade` on each track installer skips re-download when already at the latest version — **winPEAS** (`Install-WinBuildReviewTools.ps1 -Upgrade`; first install `-InstallAll`); **SharpHound/PingCastle** (`Install-ADReviewTools.ps1 -InstallAll -Upgrade`); **Microsoft Graph** (`Install-ADReviewTools.ps1 -InstallGraphModule -Upgrade`); **Azure** pip via `-InstallPythonTools -Upgrade`, **AzureHound** via `-InstallAzureHound -Upgrade` (release tag in `.\tools\azurehound.release`), **Azure CLI** via `-InstallAzCli -Upgrade` (compares installed vs. latest PyPI `azure-cli` version; `winget upgrade` / `apt --only-upgrade` / Microsoft install script depending on platform).
 
-Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZURE_README.md — installer & identity tools](AZURE_README.md#identity-tools-manual--methodology-section-35)
+Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZURE_README.md — identity tools & §35 workbook mapping](AZURE_README.md#workbook-mapping-section-35)
 
 ---
 
@@ -175,7 +175,7 @@ Treat output as **triage**, not a final audit verdict.
 
 ## BloodHound CE (AD and Azure collectors)
 
-BloodHound **CE** is not installed by either installer and is **not used by WinBuildReview**. It is the **analysis GUI** for SharpHound (AD) or AzureHound (Azure) collector zips.
+BloodHound **CE** is not installed by either installer and is **not used by WinBuildReview**. It is the **analysis GUI** for SharpHound zip collections (AD) or AzureHound JSON (Azure).
 
 Install: [Community Edition quickstart](https://bloodhound.specterops.io/get-started/quickstart/community-edition-quickstart) — **Docker Desktop** (must use **Linux containers**, not Windows containers) + **[bloodhound-cli](https://github.com/SpecterOps/bloodhound-cli/releases/latest)**.
 
@@ -217,8 +217,8 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure i
 1. **Scope** forests, hosts, subscriptions, hybrid Entra, ADCS.
 2. **AD:** [AD_README.md](AD_README.md) — RSAT workstation; `-RunPingCastle` / `-RunSharpHound`; BloodHound CE for paths.
 3. **Build:** [WINBUILD_README.md](WINBUILD_README.md) — on each server/DC; complete remaining CIS PDF controls manually.
-4. **Azure:** [AZURE_README.md](AZURE_README.md) — `az login` → review (optional `-RunProwler`); section 35: ROADrecon + AzureHound/BloodHound (separate auth steps).
-5. **Triage** CSV rows against the matching workbook — match **Title** to column F (+ MITRE); complete **MANUAL** rows (portal, CIS PDF, BloodHound ingest, §35 tools).
+4. **Azure:** [AZURE_README.md](AZURE_README.md) — `az login` → review (optional `-RunProwler`); section 35: ROADrecon + AzureHound/BloodHound (separate auth steps); map findings via [§35 workbook mapping](AZURE_README.md#workbook-mapping-section-35).
+5. **Triage** CSV rows against the matching workbook — match **Title** to column F (+ MITRE); complete **MANUAL** rows (portal, CIS PDF, BloodHound ingest, §35 tools per Azure mapping table when applicable).
 
 ---
 
@@ -267,9 +267,8 @@ az login
 .\Invoke-RoadreconGather.ps1
 .\Start-RoadreconGui.ps1
 .\Get-AzureHoundRefreshToken.ps1
-# Linux: pwsh ./Get-AzureHoundRefreshToken.ps1
-# Windows PowerShell — on Linux use bash from AZURE_README.md (Linux / Kali):
-azurehound list -r (Get-Content ./tools/azurehound.refresh -Raw) -t (az account show --query tenantDefaultDomain -o tsv) -o ./tools/azurehound.json
+.\Invoke-AzureHoundList.ps1
+# Linux: pwsh ./Get-AzureHoundRefreshToken.ps1; pwsh ./Invoke-AzureHoundList.ps1
 .\Deploy-AzureReviewLab.ps1 -IncludeExtendedLab
 .\AzureCloudReviewv1.ps1 -SubscriptionId "<guid>" -RunProwler
 .\Destroy-AzureReviewLab.ps1 -Force

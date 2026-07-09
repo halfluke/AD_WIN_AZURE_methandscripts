@@ -6,7 +6,7 @@ Pentester-focused **Entra ID + Azure resource** automation aligned to `Draft_Met
 |------|--------|
 | Script | `AzureCloudReviewv1.ps1` (**v1.0.1**) |
 | Shared | `AzureCloudReview.Common.ps1` |
-| Installer | `Install-AzureReviewTools.ps1` |
+| Installer | `Install-AzureReviewTools.ps1` (**v1.0.0**) |
 | Lab | `Deploy-AzureReviewLab.ps1`, `Destroy-AzureReviewLab.ps1` (**v1.0.2** destroy) |
 | ROADrecon auth | `Start-RoadreconAuth.ps1` → `.roadtools_auth` |
 | ROADrecon gather | `Invoke-RoadreconGather.ps1` → `roadrecon.db` (streams output; flags HTTP 4xx/5xx; verifies DB was written) |
@@ -144,6 +144,25 @@ These steps are **manual** after `AzureCloudReviewv1.ps1`. They do not replace t
 
 BloodHound CE setup: [README.md](README.md#bloodhound-ce-ad-and-azure-collectors).
 
+### Workbook mapping (section 35)
+
+`Draft_Methodology_Azure_FINAL.xlsx` has **eight in-scope controls** under **35. IDENTITY & ATTACK PATH**. Match each row by **Title (column F)**; record findings in **Written Issues (column L)** and **Notes (column M)** after triaging ROADrecon / BloodHound output. `AzureCloudReviewv1.ps1` CSV rows for the same section (Owner/UAA listings, app/SP counts) are **cross-check input** — not a substitute for manual path analysis.
+
+| Workbook title (col F) | Primary tool | What you're proving |
+|------------------------|--------------|---------------------|
+| Entra ID tenant recon and object inventory | **ROADrecon** | Full Entra dump: users, roles, apps, CA, tenant policy |
+| Collect Entra + Azure RM data for BloodHound | **AzureHound** | Graph + ARM collected; ingest `azurehound.json` into BloodHound CE |
+| Shortest paths to Global Administrator / Privileged Role Administrator | **BloodHound CE** | Tier-0 escalation paths (prebuilt AZ queries) |
+| Paths to subscription Owner or User Access Administrator | **BloodHound CE** + `az` | Cross-check script RBAC evidence with graph paths |
+| Abusable app registrations and OAuth consent | **ROADrecon** (+ BloodHound CE) | Dangerous API permissions, consent grants, app owners |
+| Service principals with credentials and privileged permissions | **ROADrecon** (+ BloodHound CE) | SPs with secrets/certs + high-privilege role assignments |
+| Managed identity → Key Vault / storage escalation paths | **BloodHound CE** + `az` | MI → data-plane roles on KV/storage |
+| Exploitable RBAC — roleAssignments/write | **BloodHound CE** + `az` | Self-elevation via role assignment write |
+
+BloodHound path findings stay **manual** triage — do not expect `AzureCloudReviewv1.ps1` to emit PASS/FAIL for attack-path rows.
+
+The workbook **Commands/Guidance** column for the AzureHound row still references `azurehound start` and `.zip` (BloodHound Enterprise). For **BloodHound CE**, use `Invoke-AzureHoundList.ps1` / `azurehound list` → `azurehound.json` as documented in [AzureHound (attack paths)](#azurehound-attack-paths) below.
+
 ---
 
 ### ROADrecon
@@ -221,6 +240,8 @@ roadrecon plugin -h
 Optional extra collectors (if your `roadrecon -h` lists them): `pimgather`, `azgather`, etc. — only needed for PIM or Azure RBAC detail beyond core `gather`.
 
 #### 5. What to look for (section 35)
+
+Use the [Workbook mapping (section 35)](#workbook-mapping-section-35) table when signing off methodology rows. The areas below are analyst prompts when reviewing ROADrecon output.
 
 | Area | Examples |
 |------|----------|
@@ -418,7 +439,7 @@ See [AzureHound CE docs](https://bloodhound.specterops.io/collect-data/ce-collec
 1. Run `AzureCloudReviewv1.ps1` (and `-RunProwler` if in scope).
 2. ROADrecon: auth → gather → `plugin policies` → GUI review.
 3. AzureHound → BloodHound CE pathfinding (prebuilt Azure queries + pathfinding; see **BloodHound CE — Azure pathfinding** above).
-4. Triage **MANUAL** / **REVIEW** rows in section 35 of `Draft_Methodology_Azure_FINAL.xlsx` against the above.
+4. Map each of the eight §35 workbook rows using the [Workbook mapping (section 35)](#workbook-mapping-section-35) table; fill **Written Issues (column L)** and **Notes (column M)**.
 
 ---
 
@@ -636,4 +657,4 @@ Source: `Draft_Methodology_Azure_FINAL.xlsx`.
 | 32 | Subscriptions | Owner count, UAA, budgets, policies |
 | 33 | Synapse | TDE (**REVIEW**) |
 | 34 | Virtual Machines | Public IPs, VMSS, JIT |
-| 35 | Identity & Attack Path | Script: RBAC / SP counts via `az`. **Manual:** ROADrecon (Entra inventory + CA export), AzureHound → BloodHound (attack paths) |
+| 35 | Identity & Attack Path | Script: RBAC / SP counts via `az`. **Manual:** ROADrecon (Entra inventory + CA export), AzureHound → BloodHound (attack paths) — see [Workbook mapping (section 35)](#workbook-mapping-section-35) |

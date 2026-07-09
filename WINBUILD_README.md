@@ -6,7 +6,7 @@ Pentester-focused **local OS hardening** automation aligned to `Draft_Windows-Bu
 |------|--------|
 | Script | `WinBuildReview.ps1` (**v2.0.6**) |
 | Shared | `WinBuildReview.Common.ps1`, `WinBuildReview.CisProfiles.ps1`, `WinBuildReview.PrivEscDeep.ps1` |
-| Installer | `Install-WinBuildReviewTools.ps1` (optional winPEAS) |
+| Installer | `Install-WinBuildReviewTools.ps1` (**v1.1.0**, optional winPEAS) |
 | Workbook | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` |
 
 **Scope:** OS services, patching signals, SMB, firewall, Defender, local GPO on **member servers and DCs** (on-prem or **Azure VMs**). **No** AD object checks, **no** Azure subscription checks. Optional **winPEAS** for deep local privesc enumeration (`-RunWinPeas`).
