@@ -617,4 +617,4 @@ elseif ($needsUpgrade -or $parsersNeedsUpgrade) {
 
 Write-Host "Run build review with deep privesc enumeration:" -ForegroundColor Cyan
 Write-Host "  .\WinBuildReview.ps1 -RunWinPeas    # winpeas-<host>-<timestamp>.* when parsers installed"
-Write-Host "  .\WinBuildReview.ps1                    # native deep privesc checks only (full run, not -CisBaselineOnly)`n"
+Write-Host "  .\WinBuildReview.ps1                    # full CIS + native privesc review`n"

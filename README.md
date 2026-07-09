@@ -17,7 +17,7 @@ Pentester-focused assessment pack with **three separate tracks**. Each track has
 | Track | Script | Methodology workbook | Version | Scope |
 |-------|--------|----------------------|---------|--------|
 | **Active Directory** | `ADReviewv1.ps1` | `Draft_AD_Methodology_FINAL.xlsx` | 1.1.0 | AD objects, domain/forest policy, trusts, delegation, ADCS posture, hybrid Entra |
-| **Windows build / host** | `WinBuildReview.ps1` | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | 2.0.6 | OS services, patching, SMB, firewall, Defender, local GPO, local privesc |
+| **Windows build / host** | `WinBuildReview.ps1` | `Draft_Windows-Build-Review-Methodology_FINAL.xlsx` | 2.1.0 | OS services, patching, SMB, firewall, Defender, local GPO, local privesc |
 | **Azure / Entra cloud** | `AzureCloudReviewv1.ps1` | `Draft_Methodology_Azure_FINAL.xlsx` | 1.0.1 | Entra ID, Azure resources, RBAC, CIS-aligned cloud misconfigs |
 
 | Track | Out of scope (use another track) |
@@ -68,7 +68,7 @@ Details: [AD_README.md — external tools](AD_README.md#external-tools) · [AZUR
 | Script | Python? | PowerShell | Typical host |
 |--------|---------|------------|--------------|
 | `ADReviewv1.ps1` | No | 5.1+ | Domain-joined workstation with RSAT, or DC |
-| `WinBuildReview.ps1` | No | 5.1+ | Each in-scope server/DC (elevated recommended) |
+| `WinBuildReview.ps1` | No | 5.1+ | Each in-scope server/DC — **elevated** for CIS/build review; non-elevated **only** with `-RunWinPeas` |
 | `AzureCloudReviewv1.ps1` | No for core review | 5.1+ or 7 on Linux | Host with `az login` |
 | `Install-ADReviewTools.ps1` | No | 5.1+ | Windows with internet |
 | `Install-WinBuildReviewTools.ps1` | No | 5.1+ | Windows with internet (optional winPEAS) |
@@ -114,7 +114,7 @@ The **`.xlsx` is the full engagement checklist** (every control + MITRE column J
 | Track | Workbook rows (approx.) | Script titles emitted (approx.) | Notes |
 |-------|-------------------------|----------------------------------|-------|
 | AD | ~128 (~115 in-scope AD; 13 deferred to WinBuild §10) | ~71 | Many ADCS / GPO rows stay MANUAL; most CSV titles now match workbook **column F** exactly; match by **Title** → column F |
-| WinBuild | ~62 | ~61 | Closest alignment; finish CIS PDF gaps from workbook |
+| WinBuild | ~62 | ~61 | Closest alignment; many rows are `REVIEW` by design (evidence auto-collected); finish CIS PDF gaps from workbook |
 | Azure | ~91 | ~57 | Workbook = granular CIS rows; script often **bundles by section** (e.g. §34 VMs); optional `-RunProwler` for CIS L1 depth |
 
 **Triage:** map each CSV row to the workbook by **Title (column F)**, then MITRE — not by row number. Title strings often differ from the workbook; workbook-only rows are expected.
@@ -129,7 +129,7 @@ cd C:\path\to\AD_WIN_AZURE_methandscripts
 # AD
 .\ADReviewv1.ps1
 
-# Windows build (auto-detects Server 2012–2025 profile)
+# Windows build — elevated PowerShell (Run as administrator)
 .\WinBuildReview.ps1
 
 # Azure (after az login — Windows or pwsh on Linux)
@@ -163,7 +163,7 @@ Full parameter lists and lab deploy: see track READMEs above.
 |--------|---------|
 | `PASS` | Automated signal looks compliant |
 | `FAIL` | Automated signal indicates misconfiguration |
-| `REVIEW` | Data captured; analyst judgement required |
+| `REVIEW` | Data captured; analyst judgement required (evidence in TXT/CSV/HTML — runner did the collection) |
 | `SKIP` | Precondition not met (wrong role, service not deployed, OS control N/A) |
 | `MANUAL` | External tool or portal step documented |
 | `ERROR` | Command or permission failure |
@@ -216,7 +216,7 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure i
 
 1. **Scope** forests, hosts, subscriptions, hybrid Entra, ADCS.
 2. **AD:** [AD_README.md](AD_README.md) — RSAT workstation; `-RunPingCastle` / `-RunSharpHound`; BloodHound CE for paths.
-3. **Build:** [WINBUILD_README.md](WINBUILD_README.md) — on each server/DC; complete remaining CIS PDF controls manually.
+3. **Build:** [WINBUILD_README.md](WINBUILD_README.md) — on each server/DC (elevated CIS pass; optional non-elevated `-RunWinPeas` pass); triage `REVIEW` rows from exported evidence; complete remaining CIS PDF controls manually.
 4. **Azure:** [AZURE_README.md](AZURE_README.md) — `az login` → review (optional `-RunProwler`); section 35: ROADrecon + AzureHound/BloodHound (separate auth steps); map findings via [§35 workbook mapping](AZURE_README.md#workbook-mapping-section-35).
 5. **Triage** CSV rows against the matching workbook — match **Title** to column F (+ MITRE); complete **MANUAL** rows (portal, CIS PDF, BloodHound ingest, §35 tools per Azure mapping table when applicable).
 
@@ -230,7 +230,7 @@ Collectors: SharpHound (AD) or AzureHound (Azure) — see track READMEs. Azure i
 | `ADReviewv1.ps1` | **1.1.0** | SharpHound `--nocache`, PingCastle, Purple Knight, `-PingCastleServer`; RSAT + Graph checks for account/domain/Kerberos/hybrid Entra controls; CSV titles aligned to workbook column F |
 | `Install-ADReviewTools.ps1` | **1.0.0** | SharpHound + PingCastle (Windows) |
 | WinBuild methodology | **FINAL** (`Draft_Windows-Build-Review-Methodology_FINAL.xlsx`) | ~62 workbook rows; ~61 script checks |
-| `WinBuildReview.ps1` | **2.0.6** | Native deep privesc checks; optional `-RunWinPeas` → timestamped winpeas `.out` + JSON/HTML/PDF when parsers installed |
+| `WinBuildReview.ps1` | **2.1.0** | Exits if non-elevated without `-RunWinPeas`; WinPeasOnly for non-elevated + `-RunWinPeas`; evidence collection in TXT/CSV/HTML; `-CisRenameReviewToFail` elevated-only |
 | `Install-WinBuildReviewTools.ps1` | **1.1.0** | winPEAS + PEASS parsers (Windows) |
 | Azure methodology | **FINAL** (`Draft_Methodology_Azure_FINAL.xlsx`) | ~91 workbook rows, 35 sections; ~57 script checks |
 | `AzureCloudReviewv1.ps1` | **1.0.1** | az CLI, optional Prowler (UTF-8 wrapper), §35 ROADrecon/AzureHound hints |
@@ -256,9 +256,9 @@ than silently misbinding them into the wrong parameter.
 .\Install-ADReviewTools.ps1 -InstallAll -AddToolsToUserPath
 .\ADReviewv1.ps1 -RunSharpHound -RunPingCastle
 
-.\WinBuildReview.ps1 -CisBaselineOnly -StrictCis
+.\WinBuildReview.ps1 -CisRenameReviewToFail   # elevated only
 .\Install-WinBuildReviewTools.ps1 -InstallAll -AddToolsToUserPath
-.\WinBuildReview.ps1 -RunWinPeas
+.\WinBuildReview.ps1 -RunWinPeas   # non-elevated WinPeasOnly pass
 
 .\Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath
 # Linux: pwsh ./Install-AzureReviewTools.ps1 -InstallAll -AddToolsToUserPath

@@ -1,5 +1,14 @@
 # Windows Build Review - shared helpers (dot-sourced by WinBuildReview.ps1)
 
+# Default script-scope state for IDE analysis; WinBuildReview.ps1 sets these before dot-sourcing.
+if ($null -eq $script:TxtLog) { $script:TxtLog = '' }
+if ($null -eq $script:Results) { $script:Results = [System.Collections.Generic.List[object]]::new() }
+if ($null -eq $script:CisRenameReviewToFail) { $script:CisRenameReviewToFail = $false }
+if ($null -eq $script:CisPromotions) { $script:CisPromotions = [System.Collections.ArrayList]::new() }
+if ($null -eq $script:CisPromotedCheckIds) { $script:CisPromotedCheckIds = @{} }
+if ($null -eq $script:OsProfile) { $script:OsProfile = '' }
+if ($null -eq $script:CisBenchmarkLabel) { $script:CisBenchmarkLabel = '' }
+
 function Write-Log {
     param([string]$Message)
     Add-Content -Path $script:TxtLog -Value $Message -Encoding utf8
@@ -20,10 +29,23 @@ function Get-CisAlignedStatus {
     param(
         [Parameter(Mandatory)][bool]$Compliant,
         [ValidateSet('REVIEW', 'FAIL')]
-        [string]$NonCompliantStatus = 'REVIEW'
+        [string]$NonCompliantStatus = 'REVIEW',
+        [string]$CheckId = '',
+        [string]$Title = ''
     )
     if ($Compliant) { return 'PASS' }
-    if ($script:StrictCis) { return 'FAIL' }
+    if ($script:CisRenameReviewToFail -and $NonCompliantStatus -eq 'REVIEW') {
+        if ($CheckId -and $Title) {
+            if (-not $script:CisPromotions) { $script:CisPromotions = [System.Collections.ArrayList]::new() }
+            if (-not $script:CisPromotedCheckIds) { $script:CisPromotedCheckIds = @{} }
+            $script:CisPromotedCheckIds[$CheckId] = $true
+            [void]$script:CisPromotions.Add([PSCustomObject]@{
+                    CheckId = $CheckId
+                    Title   = $Title
+                })
+        }
+        return 'FAIL'
+    }
     return $NonCompliantStatus
 }
 
@@ -39,8 +61,15 @@ function Add-ReviewResult {
         [string]$Severity = "Medium",
         [string]$CisRef = "",
         [string]$Remediation = "",
+        [string]$RunNote = "",
         [switch]$SkipCatalogCisRef
     )
+
+    $cisPromotionRunNote = 'CIS: REVIEW promoted to FAIL (-CisRenameReviewToFail)'
+    if ($CheckId -and $script:CisPromotedCheckIds -and $script:CisPromotedCheckIds.ContainsKey($CheckId)) {
+        if (-not $RunNote) { $RunNote = $cisPromotionRunNote }
+        $script:CisPromotedCheckIds.Remove($CheckId) | Out-Null
+    }
 
     if (-not $SkipCatalogCisRef -and $CheckId -and (Get-Command Get-CisRefForCheck -ErrorAction SilentlyContinue)) {
         $CisRef = Get-CisRefForCheck -CheckId $CheckId -Fallback $CisRef
@@ -59,6 +88,7 @@ function Add-ReviewResult {
         Summary       = $Summary
         Evidence      = if ($Evidence) { ($Evidence | Out-String).Trim() } else { "" }
         Remediation   = $Remediation
+        RunNote       = $RunNote
     }
     $script:Results.Add($entry)
 
@@ -72,6 +102,9 @@ function Add-ReviewResult {
         default  { "White" }
     }
     Write-Host ('[{0}] {1} - {2}' -f $Status, $Title, $Summary) -ForegroundColor $color
+    if ($RunNote) {
+        Write-Host ('       >> {0}' -f $RunNote) -ForegroundColor Magenta
+    }
 
     $logLines = @(
         "",
@@ -80,6 +113,7 @@ function Add-ReviewResult {
         "CheckId : $CheckId | OS: $($script:OsProfile) | CIS: $CisRef | Benchmark: $($script:CisBenchmarkLabel) | Severity: $Severity",
         "Summary : $Summary"
     )
+    if ($RunNote) { $logLines += "RunNote : $RunNote" }
     if ($Remediation) { $logLines += "Remediation: $Remediation" }
     $logLines += "Evidence:"
     $logLines += if ($Evidence) { ($Evidence | Out-String).Trim() } else { "(none)" }

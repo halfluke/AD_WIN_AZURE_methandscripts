@@ -166,7 +166,7 @@ $parts = $userPath -split ';' | Where-Object { $_ -and $_.Trim() -ne "" -and ($_
 
 ## Check statuses
 
-Same definitions as the pack overview: [README.md — Check result statuses](README.md#check-result-statuses-all-scripts).
+Same definitions as the pack overview: [README.md — Check result statuses](README.md#check-result-statuses-all-scripts). `REVIEW` rows include captured evidence in TXT/CSV/HTML for analyst judgement.
 
 ---
 
